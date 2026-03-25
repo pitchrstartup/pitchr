@@ -10,13 +10,55 @@ datasource db {
 model Project {
   id            String   @id @default(cuid())
   name          String
-  tagline       String
-  description   String
+  tagline       String   // short hook line (max 100 chars)
+  description   String   // full description (max 500 chars)
   logoUrl       String?
   twitterUrl    String?
   websiteUrl    String?
-  tokenMint     String?
+  tokenMint     String?  // Bags token address if applicable
   builderName   String
   builderAvatar String?
   createdAt     DateTime @default(now())
+  swipes        Swipe[]
+}
+
+model Swipe {
+  id        String    @id @default(cuid())
+  userId    String
+  projectId String
+  direction Direction
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId])
+}
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  name      String
+  avatar    String?
+  role      Role      @default(USER)
+  createdAt DateTime  @default(now())
+  swipes    Swipe[]
+  sessions  Session[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum Direction {
+  RIGHT
+  LEFT
+}
+
+enum Role {
+  USER
+  ADMIN
 }
