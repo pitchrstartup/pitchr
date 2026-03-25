@@ -1,68 +1,35 @@
 import Link from "next/link";
-import { Navbar } from "@/components/Navbar";
+import { Navigation } from "@/components/Navigation";
 
 export default function HomePage() {
   return (
-    <>
-      <Navbar />
-      <main className="min-h-[calc(100vh-3.5rem)] flex flex-col items-center justify-center px-4 py-16 text-center">
-        <div className="max-w-2xl mx-auto">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent/10 border border-accent/20 text-accent text-xs font-medium mb-8">
-            Bags.fm Hackathon
-          </div>
+    <main className="min-h-[100dvh] bg-background pb-24 lg:pb-0">
+      <Navigation />
 
-          <h1 className="text-5xl sm:text-6xl font-extrabold text-text-primary leading-tight mb-6">
-            Discover
-            <br />
-            <span className="text-accent">hackathon projects</span>
-          </h1>
+      <section className="flex min-h-[100dvh] flex-col justify-center px-5 pt-6 text-center lg:mx-auto lg:max-w-5xl lg:px-8">
+        <p className="text-sm font-semibold uppercase tracking-wide text-accent">Pitchr × Bags.fm Hackathon</p>
+        <h1 className="mt-4 text-4xl font-black leading-tight text-text-primary sm:text-5xl">
+          Swipe through the boldest Solana hackathon projects.
+        </h1>
+        <p className="mt-4 text-base leading-relaxed text-text-secondary sm:text-lg">
+          Discover standout builders, support your favorites, and see which projects the community feels most bullish on.
+        </p>
 
-          <p className="text-lg text-text-secondary mb-10 leading-relaxed">
-            Browse all projects built for the Bags.fm Hackathon.
-            <br />
-            Back the ones you believe in.
-          </p>
-
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link
-              href="/discover"
-              className="px-8 py-4 bg-accent text-white rounded-xl font-semibold text-base hover:bg-indigo-500 transition-colors"
-            >
-              Browse Projects
-            </Link>
-            <Link
-              href="/leaderboard"
-              className="px-8 py-4 bg-surface-2 text-text-primary rounded-xl font-semibold text-base hover:bg-border transition-colors border border-border"
-            >
-              View Leaderboard
-            </Link>
-          </div>
-
-          <div className="mt-20 grid grid-cols-1 sm:grid-cols-3 gap-6 text-left">
-            <div className="bg-surface border border-border rounded-card p-5">
-              <div className="text-2xl mb-3">🏗️</div>
-              <h3 className="font-semibold text-text-primary mb-1">10 Projects</h3>
-              <p className="text-sm text-text-secondary">
-                Real builder submissions from the Bags.fm hackathon, each with a Solana angle.
-              </p>
-            </div>
-            <div className="bg-surface border border-border rounded-card p-5">
-              <div className="text-2xl mb-3">👀</div>
-              <h3 className="font-semibold text-text-primary mb-1">Browse & Explore</h3>
-              <p className="text-sm text-text-secondary">
-                Flip through project cards, read the pitches, visit builder profiles.
-              </p>
-            </div>
-            <div className="bg-surface border border-border rounded-card p-5">
-              <div className="text-2xl mb-3">🏆</div>
-              <h3 className="font-semibold text-text-primary mb-1">Leaderboard</h3>
-              <p className="text-sm text-text-secondary">
-                See all projects ranked. Voting and community support coming soon.
-              </p>
-            </div>
-          </div>
+        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+          <Link
+            href="/discover"
+            className="flex min-h-12 items-center justify-center rounded-xl bg-accent px-6 text-base font-semibold text-white"
+          >
+            Start Swiping
+          </Link>
+          <Link
+            href="/leaderboard"
+            className="flex min-h-12 items-center justify-center rounded-xl border border-border bg-surface px-6 text-base font-semibold text-text-primary"
+          >
+            View Leaderboard
+          </Link>
         </div>
-      </main>
-    </>
+      </section>
+    </main>
   );
 }
