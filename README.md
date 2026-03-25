@@ -109,14 +109,33 @@ pitchr/
 
 ## Bags hackathon ingestion (foundation)
 
-Run a one-shot sync from Bags into `ImportedProject`:
+### Production/Vercel sync trigger
+
+Run a one-shot sync remotely by calling:
+
+- `POST /api/internal/bags/sync`
+
+Auth options (required):
+
+- `Authorization: Bearer $BAGS_SYNC_SECRET`
+- or `x-internal-token: $BAGS_SYNC_SECRET`
+- or `?token=$BAGS_SYNC_SECRET` (least preferred)
+
+Example:
 
 ```bash
-npm run db:migrate
-npm run sync:bags
+curl -X POST "https://<your-deployment>/api/internal/bags/sync" \
+  -H "Authorization: Bearer $BAGS_SYNC_SECRET"
 ```
 
-Internal verification surface:
+Response returns a structured summary with pages fetched, imported, updated, failed, and warnings.
+
+### Required env vars
+
+- `BAGS_SYNC_SECRET` (required for internal route auth)
+- `DATABASE_URL` (required for persistence)
+
+### Internal verification surface
 
 - `GET /internal/imported-projects`
 

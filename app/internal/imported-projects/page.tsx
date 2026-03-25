@@ -16,6 +16,16 @@ export default async function ImportedProjectsInternalPage() {
         Verification surface for ingestion quality before public cards/profiles.
       </p>
 
+
+      <div className="mb-4 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+        <p className="font-medium text-white">Remote sync trigger (Vercel-friendly)</p>
+        <p className="mt-1">POST <code>/api/internal/bags/sync</code> with either:</p>
+        <ul className="ml-4 list-disc">
+          <li><code>Authorization: Bearer $BAGS_SYNC_SECRET</code></li>
+          <li>or <code>x-internal-token: $BAGS_SYNC_SECRET</code></li>
+        </ul>
+      </div>
+
       <div className="overflow-x-auto rounded-xl border border-white/10">
         <table className="min-w-full text-left text-sm">
           <thead className="bg-white/5">
