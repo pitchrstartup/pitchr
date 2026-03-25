@@ -9,19 +9,18 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Pitchr — Bags Hackathon",
-  description:
-    "Swipe through Bags Hackathon projects. Back the ones you believe in.",
+  title: "Pitchr",
+  description: "Empty base ready for rebuild",
 };
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <html lang="en" className={inter.variable}>
-      <body className="antialiased font-sans">{children}</body>
+      <body className="font-sans antialiased">{children}</body>
     </html>
   );
 }

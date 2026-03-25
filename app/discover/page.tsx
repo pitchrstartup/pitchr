@@ -1,22 +1,13 @@
-import { getDiscoverFeed } from "@/actions/projects";
-import { submitSwipe } from "@/actions/swipes";
 import { Navigation } from "@/components/Navigation";
-import { SwipeDeck } from "@/components/SwipeDeck";
 
-export const dynamic = "force-dynamic";
-
-export default async function DiscoverPage() {
-  const projects = await getDiscoverFeed();
-
-  async function handleSwipe(projectId: string, direction: "RIGHT" | "LEFT") {
-    "use server";
-    await submitSwipe(projectId, direction);
-  }
-
+export default function DiscoverPage() {
   return (
-    <main className="h-[100dvh] w-full overflow-hidden bg-background">
+    <main className="min-h-screen bg-background text-text-primary">
       <Navigation />
-      <SwipeDeck projects={projects} onSwipe={handleSwipe} />
+      <section className="mx-auto max-w-3xl px-4 py-16">
+        <h1 className="text-3xl font-bold">Discover</h1>
+        <p className="mt-3 text-text-secondary">Static placeholder page. No data connected.</p>
+      </section>
     </main>
   );
 }
