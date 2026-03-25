@@ -1,0 +1,38 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model ImportedProject {
+  id              String    @id @default(cuid())
+  source          String
+  sourceProjectId String
+  sourceUrl       String
+
+  name         String?
+  description  String?
+  category     String?
+  sourceStatus String?
+
+  logoUrl      String?
+  twitterUrl   String?
+  tokenAddress String?
+
+  upvotes   Int?
+  downvotes Int?
+
+  submittedAt DateTime?
+
+  rawPayload Json?
+
+  lastSyncedAt DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([source, sourceProjectId])
+}

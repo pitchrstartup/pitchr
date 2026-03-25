@@ -10,7 +10,9 @@
     "export:bags": "node scripts/export-bags-projects-raw.mjs"
   },
   "dependencies": {
+    "@prisma/client": "^6.16.0",
     "next": "15.5.12",
+    "prisma": "^6.16.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
