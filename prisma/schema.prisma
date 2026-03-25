@@ -10,12 +10,12 @@ datasource db {
 model Project {
   id            String   @id @default(cuid())
   name          String
-  tagline       String   // short hook line (max 100 chars)
-  description   String   // full description (max 500 chars)
+  tagline       String // short hook line (max 100 chars)
+  description   String // full description (max 500 chars)
   logoUrl       String?
   twitterUrl    String?
   websiteUrl    String?
-  tokenMint     String?  // Bags token address if applicable
+  tokenMint     String? // Bags token address if applicable
   builderName   String
   builderAvatar String?
   createdAt     DateTime @default(now())
@@ -51,6 +51,36 @@ model Session {
   userId    String
   expiresAt DateTime
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ImportedProject {
+  id                  String    @id @default(cuid())
+  source              String
+  sourceProjectId     String
+  sourceUrl           String
+  name                String?
+  description         String?
+  category            String?
+  sourceStatus        String?
+  iconUrl             String?
+  twitterUrl          String?
+  tokenAddress        String?
+  upvotes             Int?
+  downvotes           Int?
+  sourceCreatedAt     DateTime?
+  twitterUserId       String?
+  twitterUsername     String?
+  twitterName         String?
+  twitterProfileImage String?
+  twitterVerified     Boolean?
+  rawListPayload      Json?
+  rawDetailPayload    Json?
+  lastSyncedAt        DateTime
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([source, sourceProjectId])
+  @@index([source, lastSyncedAt])
 }
 
 enum Direction {

@@ -106,3 +106,37 @@ pitchr/
 └── types/
     └── index.ts
 ```
+
+## Bags hackathon ingestion (foundation)
+
+### Production/Vercel sync trigger
+
+Run a one-shot sync remotely by calling:
+
+- `POST /api/internal/bags/sync`
+
+Auth options (required):
+
+- `Authorization: Bearer $BAGS_SYNC_SECRET`
+- or `x-internal-token: $BAGS_SYNC_SECRET`
+- or `?token=$BAGS_SYNC_SECRET` (least preferred)
+
+Example:
+
+```bash
+curl -X POST "https://<your-deployment>/api/internal/bags/sync" \
+  -H "Authorization: Bearer $BAGS_SYNC_SECRET"
+```
+
+Response returns a structured summary with pages fetched, imported, updated, failed, and warnings.
+
+### Required env vars
+
+- `BAGS_SYNC_SECRET` (required for internal route auth)
+- `DATABASE_URL` (required for persistence)
+
+### Internal verification surface
+
+- `GET /internal/imported-projects`
+
+This page is intentionally internal and focused on import quality checks (completeness, status, sync freshness).
