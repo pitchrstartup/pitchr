@@ -7,8 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "prisma:generate": "prisma generate",
-    "db:test": "node scripts/test-db.mjs"
+    "export:bags": "node scripts/export-bags-projects-raw.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.16.0",
