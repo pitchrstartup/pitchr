@@ -10,7 +10,8 @@
     "lint": "next lint",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "sync:bags": "tsx scripts/sync-bags-hackathon-projects.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

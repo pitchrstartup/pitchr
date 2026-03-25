@@ -106,3 +106,18 @@ pitchr/
 └── types/
     └── index.ts
 ```
+
+## Bags hackathon ingestion (foundation)
+
+Run a one-shot sync from Bags into `ImportedProject`:
+
+```bash
+npm run db:migrate
+npm run sync:bags
+```
+
+Internal verification surface:
+
+- `GET /internal/imported-projects`
+
+This page is intentionally internal and focused on import quality checks (completeness, status, sync freshness).
