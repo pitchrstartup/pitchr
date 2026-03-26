@@ -19,6 +19,8 @@ model ImportedProject {
   iconUrl             String
   twitterUrl          String
   createdAtFromSource DateTime?
+  lastSyncedAt        DateTime?
+  sourceCreatedAt     DateTime?
 
   sourceUserId        String?
   sourceStatus        String?
