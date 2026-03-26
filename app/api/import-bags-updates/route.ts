@@ -22,6 +22,8 @@ export async function POST() {
       imported: result.imported,
       updated: result.updated,
       rejected: result.rejected,
+      rejectedRowsSample: result.rejectedRows.slice(0, 10),
+      rowErrorsSample: result.rowErrors.slice(0, 10),
       durationMs: Date.now() - startedAt,
     });
   } catch (error) {
