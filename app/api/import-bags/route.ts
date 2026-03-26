@@ -56,6 +56,9 @@ export async function POST() {
       imported: result.imported,
       updated: result.updated,
       rejected: result.rejected,
+      payloadAudit: result.payloadAudit,
+      rejectedRowsSample: result.rejectedRows.slice(0, 10),
+      rowErrorsSample: result.rowErrors.slice(0, 10),
       durationMs: Date.now() - startedAt,
     });
   } catch (error) {
@@ -75,6 +78,8 @@ export async function POST() {
         error: errorMessage,
         stack: isProduction ? undefined : errorStack,
         step,
+        failingStep: step,
+        failingField: null,
         total: 0,
         imported: 0,
         updated: 0,
