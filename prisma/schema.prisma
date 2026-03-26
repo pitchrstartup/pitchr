@@ -20,13 +20,41 @@ model ImportedProject {
   twitterUrl          String
   createdAtFromSource DateTime
 
+  sourceUserId String?
   sourceStatus String?
   tokenAddress String?
+  upvotes      Int?
+  downvotes    Int?
 
   rawPayload Json?
+  updates    ImportedProjectUpdate[]
 
   importedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   @@unique([source, sourceProjectId])
+}
+
+model ImportedProjectUpdate {
+  id                String @id @default(cuid())
+  source            String
+  sourceUpdateId    String
+  sourceProjectId   String
+  sourceProjectUuid String
+  projectId         String
+
+  sourceUserId        String?
+  contentText         String?
+  createdAtFromSource DateTime
+  updatedAtFromSource DateTime?
+  rawPayload          Json?
+
+  importedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  project ImportedProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([source, sourceUpdateId])
+  @@index([source, sourceProjectUuid])
+  @@index([projectId, createdAtFromSource])
 }

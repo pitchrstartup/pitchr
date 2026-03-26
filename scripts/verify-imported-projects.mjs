@@ -12,8 +12,11 @@ async function main() {
         sourceProjectId: true,
         name: true,
         category: true,
+        sourceUserId: true,
         sourceStatus: true,
         tokenAddress: true,
+        upvotes: true,
+        downvotes: true,
         importedAt: true,
       },
     });
@@ -21,7 +24,7 @@ async function main() {
     console.log(`[verify:bags] total imported rows for source=bags: ${total}`);
     for (const row of sample) {
       console.log(
-        `- ${row.sourceProjectId} | ${row.name} | ${row.category} | status=${row.sourceStatus ?? 'null'} | token=${row.tokenAddress ?? 'null'}`,
+        `- ${row.sourceProjectId} | ${row.name} | ${row.category} | user=${row.sourceUserId ?? 'null'} | status=${row.sourceStatus ?? 'null'} | token=${row.tokenAddress ?? 'null'} | votes=${row.upvotes ?? 'null'}/${row.downvotes ?? 'null'}`,
       );
     }
   } finally {
