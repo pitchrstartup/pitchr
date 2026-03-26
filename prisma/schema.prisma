@@ -20,15 +20,23 @@ model ImportedProject {
   twitterUrl          String
   createdAtFromSource DateTime?
 
-  sourceUserId String?
-  sourceStatus String?
-  tokenAddress String?
-  upvotes      Int?
-  downvotes    Int?
+  sourceUserId        String?
+  sourceStatus        String?
+  tokenAddress        String?
+  upvotes             Int?
+  downvotes           Int?
+  twitterUserId       String?
+  twitterUsername     String?
+  twitterName         String?
+  twitterProfileImage String?
+  twitterVerified     Boolean?
 
-  rawPayload Json?
-  updates    ImportedProjectUpdate[]
+  rawPayload       Json                    @default("{}")
+  rawListPayload   Json                    @default("{}")
+  rawDetailPayload Json                    @default("{}")
+  updates          ImportedProjectUpdate[]
 
+  createdAt  DateTime @default(now())
   importedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -45,16 +53,18 @@ model ImportedProjectUpdate {
 
   sourceUserId        String?
   contentText         String?
-  createdAtFromSource DateTime
+  createdAtFromSource DateTime?
   updatedAtFromSource DateTime?
-  rawPayload          Json?
+  rawPayload          Json      @default("{}")
 
+  createdAt  DateTime @default(now())
   importedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   project ImportedProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@unique([source, sourceUpdateId])
+  @@index([sourceProjectId])
   @@index([source, sourceProjectUuid])
   @@index([projectId, createdAtFromSource])
 }
