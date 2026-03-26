@@ -9,7 +9,10 @@
     "lint": "next lint",
     "export:bags": "node scripts/export-bags-projects-raw.mjs",
     "import:bags": "node scripts/import-bags-projects-to-db.mjs",
-    "verify:bags-import": "node scripts/verify-imported-projects.mjs"
+    "verify:bags-import": "node scripts/verify-imported-projects.mjs",
+    "audit:bags-project-fields": "node scripts/audit-bags-imported-project-fields.mjs",
+    "audit:bags-updates": "node scripts/audit-bags-update-payload-shape.mjs",
+    "import:bags-updates": "node scripts/import-bags-project-updates-to-db.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.16.0",
