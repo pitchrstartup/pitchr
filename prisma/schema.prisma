@@ -18,7 +18,7 @@ model ImportedProject {
   category            String
   iconUrl             String
   twitterUrl          String
-  createdAtFromSource DateTime
+  createdAtFromSource DateTime?
 
   sourceUserId String?
   sourceStatus String?
