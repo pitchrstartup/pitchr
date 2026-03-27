@@ -1,4 +1,4 @@
-# Project Field Mapping (`ImportedProject` -> `Project`)
+# Project Field Mapping (`ImportedProject` + `ImportedTokenMetrics` -> `Project`)
 
 | Project field | Source path | Mapping type | Nullable? | Notes |
 | --- | --- | --- | --- | --- |
@@ -32,6 +32,12 @@
 | `twitterMediaCount` | `ImportedProject.rawDetailPayload.twitterUser.public_metrics.media_count` | `rawDetailPayload` extraction | Nullable | Media metric. |
 | `upvotes` | `ImportedProject.upvotes` | Direct column | Nullable | Included from Bags signals; available for product use but not a default-UI decision in this task. |
 | `downvotes` | `ImportedProject.downvotes` | Direct column | Nullable | Included from Bags signals; available for product use but not a default-UI decision in this task. |
+| `lifetimeFeesLamports` | `ImportedTokenMetrics.lifetimeFeesLamports` matched by `Project.tokenAddress = ImportedTokenMetrics.tokenMint` | Direct column | Nullable | Bags lifetime fees (lamports as string). |
+| `claimsTotalLamports` | `ImportedTokenMetrics.claimsTotalLamports` matched by token mint | Derived from claim-stats mirror | Nullable | Sum of all claim amounts (lamports string). |
+| `claimsCreatorLamports` | `ImportedTokenMetrics.claimsCreatorLamports` matched by token mint | Derived from claim-stats mirror | Nullable | Sum of creator claim amounts (lamports string). |
+| `claimsUniqueWallets` | `ImportedTokenMetrics.claimsUniqueWallets` matched by token mint | Derived from claim-stats mirror | Nullable | Unique claiming wallets count. |
+| `creatorCount` | `ImportedTokenMetrics.creatorCount` matched by token mint | Derived from launch-creators mirror | Nullable | Lightweight creator presence signal. |
+| `hasLaunchCreator` | `ImportedTokenMetrics.hasCreator` matched by token mint | Derived boolean | Nullable | Minimal trust/presence signal for product logic. |
 | `createdAtFromSource` | `ImportedProject.createdAtFromSource` | Direct column | Nullable | Source creation timestamp mirror. |
 | `sourceCreatedAt` | `ImportedProject.sourceCreatedAt` | Direct column | Nullable | Source-specific created timestamp mirror. |
 | `rawListPayload` | `ImportedProject.rawListPayload` | Direct column | Required (`Json` default) | Raw source payload retained. |

@@ -71,6 +71,29 @@ model ImportedProjectUpdate {
   @@index([projectId, createdAtFromSource])
 }
 
+model ImportedTokenMetrics {
+  id                     String  @id @default(cuid())
+  source                 String
+  tokenMint              String
+  lifetimeFeesLamports   String?
+  claimsTotalLamports    String?
+  claimsCreatorLamports  String?
+  claimsUniqueWallets    Int?
+  creatorCount           Int?
+  hasCreator             Boolean?
+  creatorWallets         Json    @default("[]")
+  rawLifetimeFeesPayload Json    @default("{}")
+  rawClaimStatsPayload   Json    @default("{}")
+  rawLaunchCreatorsPayload Json  @default("{}")
+  lastFetchedAt          DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([source, tokenMint])
+  @@index([tokenMint])
+}
+
 model Project {
   id              String  @id @default(cuid())
   slug            String  @unique
@@ -107,6 +130,13 @@ model Project {
 
   upvotes   Int?
   downvotes Int?
+
+  lifetimeFeesLamports  String?
+  claimsTotalLamports   String?
+  claimsCreatorLamports String?
+  claimsUniqueWallets   Int?
+  creatorCount          Int?
+  hasLaunchCreator      Boolean?
 
   createdAtFromSource DateTime?
   sourceCreatedAt     DateTime?
