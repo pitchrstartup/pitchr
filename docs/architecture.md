@@ -4,7 +4,8 @@
 
 - **ImportedProject** = mirror of Bags project records (normalized + raw payload retention).
 - **ImportedProjectUpdate** = mirror of Bags project updates feed.
-- **Project** = product-level projection read model derived from `ImportedProject`.
+- **ImportedTokenMetrics** = mirror of targeted Bags token enrichment endpoints (`lifetime-fees`, `claim-stats`, `creators`) keyed by `(source, tokenMint)`.
+- **Project** = product-level projection read model derived from `ImportedProject` plus lightweight projected token metrics.
 
 ## Current data flow
 
@@ -23,14 +24,26 @@
      - after each run, `nextCursor` is persisted.
      - when end of sorted project list is reached, cursor wraps to `0`.
 
-3. **ImportedProject -> Project**
+3. **Bags token endpoints -> ImportedTokenMetrics**
+   - Trigger: `POST /api/import-bags-token-enrichments`
+   - Input: imported projects where `tokenAddress` exists
+   - Logic: load dedicated persisted cursor (`bags:token-enrichments:cursor:v1`), process one project batch per run, dedupe token mints in-run, then call:
+     - `/token-launch/lifetime-fees`
+     - `/token-launch/claim-stats`
+     - `/token-launch/creators`
+   - Writes: upsert one mirror row per `(source, tokenMint)` with minimal scalar fields + compact raw payload columns.
+   - Resilience: per-token endpoint failures are isolated and logged; one token failure does not fail the whole batch.
+
+4. **ImportedProject + ImportedTokenMetrics -> Project**
    - Trigger: `POST /api/sync-projects`
-   - Input: all imported project rows
-   - Logic: map imported fields into product projection, derive collision-safe slug, then upsert by `(source, sourceProjectId)`.
+   - Input: all imported project rows + token metrics by token mint
+   - Logic: map imported fields into product projection, derive collision-safe slug, project only lightweight token metrics fields, then upsert by `(source, sourceProjectId)`.
 
 ## Guardrails
 
 - Cron routes require `Authorization: Bearer <CRON_SECRET>`.
-- Current architecture intentionally preserves raw payload columns to avoid data loss while product fields evolve.
-- Projection logic is centralized in `lib/sync-projects.ts` and should remain the single mapping source for `Project` writes.
-- Updates import remains idempotent because writes still use `upsert` on `(source, sourceUpdateId)`.
+- `POST /api/import-bags-updates` remains unchanged and isolated from token enrichments.
+- Token enrichment uses server-side `BAGS_API_KEY` and dedicated batch sizing (`BAGS_TOKEN_ENRICHMENTS_BATCH_SIZE`).
+- No Vercel Cron assumption: cron-job.org remains the external scheduler for all cron routes.
+- Projection logic is centralized in `lib/sync-projects.ts` and remains the single mapping source for `Project` writes.
+- Mirror-first architecture stays intact: source mirrors (`ImportedProject*`, `ImportedTokenMetrics`) are separated from product projection (`Project`).

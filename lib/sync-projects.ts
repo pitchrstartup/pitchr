@@ -6,6 +6,9 @@ type ProjectSyncClient = {
   importedProject: {
     findMany: (args: Prisma.ImportedProjectFindManyArgs) => Promise<ImportedProjectRow[]>;
   };
+  importedTokenMetrics: {
+    findMany: (args: Prisma.ImportedTokenMetricsFindManyArgs) => Promise<ImportedTokenMetricsRow[]>;
+  };
   project: {
     findUnique: (args: Prisma.ProjectFindUniqueArgs) => Promise<{ id: string; slug: string } | null>;
     create: (args: Prisma.ProjectCreateArgs) => Promise<{ id: string }>;
@@ -39,6 +42,16 @@ type ImportedProjectRow = {
   rawDetailPayload: Prisma.JsonValue;
 };
 
+type ImportedTokenMetricsRow = {
+  tokenMint: string;
+  lifetimeFeesLamports: string | null;
+  claimsTotalLamports: string | null;
+  claimsCreatorLamports: string | null;
+  claimsUniqueWallets: number | null;
+  creatorCount: number | null;
+  hasCreator: boolean | null;
+};
+
 type ProjectionRow = {
   source: string;
   sourceProjectId: string;
@@ -68,6 +81,12 @@ type ProjectionRow = {
   twitterMediaCount: number | null;
   upvotes: number | null;
   downvotes: number | null;
+  lifetimeFeesLamports: string | null;
+  claimsTotalLamports: string | null;
+  claimsCreatorLamports: string | null;
+  claimsUniqueWallets: number | null;
+  creatorCount: number | null;
+  hasLaunchCreator: boolean | null;
   createdAtFromSource: Date | null;
   sourceCreatedAt: Date | null;
   rawListPayload: Prisma.InputJsonValue;
@@ -108,10 +127,10 @@ function asDate(value: unknown): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-
 function toInputJson(value: Prisma.JsonValue): Prisma.InputJsonValue {
   return (value ?? {}) as Prisma.InputJsonValue;
 }
+
 function slugifyName(name: string): string {
   const slug = name
     .toLowerCase()
@@ -214,7 +233,13 @@ function extractTwitterFields(rawDetailPayload: Prisma.JsonValue): Pick<
   };
 }
 
-function projectFromImported(imported: ImportedProjectRow): ProjectionRow {
+function projectFromImported({
+  imported,
+  metrics,
+}: {
+  imported: ImportedProjectRow;
+  metrics: ImportedTokenMetricsRow | null;
+}): ProjectionRow {
   const extractedTwitter = extractTwitterFields(imported.rawDetailPayload);
 
   return {
@@ -237,6 +262,12 @@ function projectFromImported(imported: ImportedProjectRow): ProjectionRow {
     ...extractedTwitter,
     upvotes: imported.upvotes,
     downvotes: imported.downvotes,
+    lifetimeFeesLamports: metrics?.lifetimeFeesLamports ?? null,
+    claimsTotalLamports: metrics?.claimsTotalLamports ?? null,
+    claimsCreatorLamports: metrics?.claimsCreatorLamports ?? null,
+    claimsUniqueWallets: metrics?.claimsUniqueWallets ?? null,
+    creatorCount: metrics?.creatorCount ?? null,
+    hasLaunchCreator: metrics?.hasCreator ?? null,
     createdAtFromSource: imported.createdAtFromSource,
     sourceCreatedAt: imported.sourceCreatedAt,
     rawListPayload: toInputJson(imported.rawListPayload),
@@ -274,13 +305,50 @@ export async function syncProjectsFromImported({ prisma }: { prisma: ProjectSync
     orderBy: { createdAt: 'asc' },
   });
 
+  const tokenMints = Array.from(
+    new Set(
+      importedRows
+        .map((row) => asString(row.tokenAddress))
+        .filter((value): value is string => value !== null),
+    ),
+  );
+
+  const tokenMetricsRows =
+    tokenMints.length > 0
+      ? await prisma.importedTokenMetrics.findMany({
+          where: {
+            source: 'bags_hackathon',
+            tokenMint: {
+              in: tokenMints,
+            },
+          },
+          select: {
+            tokenMint: true,
+            lifetimeFeesLamports: true,
+            claimsTotalLamports: true,
+            claimsCreatorLamports: true,
+            claimsUniqueWallets: true,
+            creatorCount: true,
+            hasCreator: true,
+          },
+        })
+      : [];
+
+  const tokenMetricsByMint = new Map<string, ImportedTokenMetricsRow>(
+    tokenMetricsRows.map((row) => [row.tokenMint, row]),
+  );
+
   let imported = 0;
   let updated = 0;
   const rowErrors: Array<{ sourceProjectId: string; source: string; reason: string }> = [];
 
   for (const row of importedRows) {
     try {
-      const projection = projectFromImported(row);
+      const tokenMint = asString(row.tokenAddress);
+      const projection = projectFromImported({
+        imported: row,
+        metrics: tokenMint ? tokenMetricsByMint.get(tokenMint) ?? null : null,
+      });
       const existing = await prisma.project.findUnique({
         where: {
           source_sourceProjectId: {
@@ -335,6 +403,12 @@ export async function syncProjectsFromImported({ prisma }: { prisma: ProjectSync
             twitterMediaCount: projection.twitterMediaCount,
             upvotes: projection.upvotes,
             downvotes: projection.downvotes,
+            lifetimeFeesLamports: projection.lifetimeFeesLamports,
+            claimsTotalLamports: projection.claimsTotalLamports,
+            claimsCreatorLamports: projection.claimsCreatorLamports,
+            claimsUniqueWallets: projection.claimsUniqueWallets,
+            creatorCount: projection.creatorCount,
+            hasLaunchCreator: projection.hasLaunchCreator,
             createdAtFromSource: projection.createdAtFromSource,
             sourceCreatedAt: projection.sourceCreatedAt,
             rawListPayload: projection.rawListPayload,
