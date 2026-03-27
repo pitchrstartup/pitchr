@@ -7,11 +7,13 @@ async function main() {
   try {
     const result = await importBagsProjectUpdates({ prisma });
 
+    console.log(`[import:bags-updates] batch size: ${result.batchSize}`);
     console.log(`[import:bags-updates] projects processed: ${result.projectsProcessed}`);
+    console.log(`[import:bags-updates] next cursor: ${result.nextCursor}`);
     console.log(`[import:bags-updates] total updates fetched: ${result.totalUpdatesFetched}`);
     console.log(`[import:bags-updates] imported rows: ${result.imported}`);
     console.log(`[import:bags-updates] updated rows: ${result.updated}`);
-    console.log(`[import:bags-updates] rejected rows: ${result.rejected}`);
+    console.log(`[import:bags-updates] failed rows: ${result.failed}`);
 
     if (result.rejectedRows.length > 0) {
       for (const row of result.rejectedRows.slice(0, 20)) {
@@ -29,14 +31,6 @@ async function main() {
       }
     }
 
-    if (result.sample.length > 0) {
-      console.log('[import:bags-updates] sample rows:');
-      for (const row of result.sample) {
-        console.log(
-          `  - update=${row.sourceUpdateId} project=${row.sourceProjectUuid} user=${row.sourceUserId ?? 'null'} createdAt=${row.createdAtFromSource.toISOString()} text=${(row.contentText ?? '').slice(0, 120)}`,
-        );
-      }
-    }
   } finally {
     await prisma.$disconnect();
   }

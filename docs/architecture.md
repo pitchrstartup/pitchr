@@ -16,7 +16,12 @@
 2. **Bags -> ImportedProjectUpdate**
    - Trigger: `POST /api/import-bags-updates`
    - Input: live Bags updates API (`/hackathon/{uuid}/updates`)
-   - Logic: fetch per imported project, normalize, then upsert by `(source, sourceUpdateId)`.
+   - Logic: load a persisted cursor (`ImportCursor`), process only one project batch per run, normalize updates, then upsert by `(source, sourceUpdateId)`.
+   - Cursor behavior:
+     - single cron job keeps calling the same route.
+     - each run processes up to `BAGS_UPDATES_BATCH_SIZE` projects (default `50`, hard max `200`).
+     - after each run, `nextCursor` is persisted.
+     - when end of sorted project list is reached, cursor wraps to `0`.
 
 3. **ImportedProject -> Project**
    - Trigger: `POST /api/sync-projects`
@@ -28,3 +33,4 @@
 - Cron routes require `Authorization: Bearer <CRON_SECRET>`.
 - Current architecture intentionally preserves raw payload columns to avoid data loss while product fields evolve.
 - Projection logic is centralized in `lib/sync-projects.ts` and should remain the single mapping source for `Project` writes.
+- Updates import remains idempotent because writes still use `upsert` on `(source, sourceUpdateId)`.

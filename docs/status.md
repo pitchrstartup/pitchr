@@ -8,6 +8,7 @@
   - `ImportedProject`
   - `ImportedProjectUpdate`
   - `Project`
+  - `ImportCursor` (for incremental batch cursors)
 - Cron-protected API routes:
   - `POST /api/import-bags`
   - `POST /api/import-bags-updates`
@@ -18,6 +19,7 @@
 
 - End-to-end import of Bags project snapshot into `ImportedProject`.
 - End-to-end import of Bags updates into `ImportedProjectUpdate`.
+- Incremental batch execution for `POST /api/import-bags-updates` with persisted cursor and wrap-around.
 - Projection sync from `ImportedProject` into `Project`.
 - External scheduler wiring (cron-job.org) calling the three API routes.
 
