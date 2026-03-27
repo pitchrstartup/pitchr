@@ -1,0 +1,371 @@
+import { Prisma } from '@prisma/client';
+
+const REJECTION_SAMPLE_LIMIT = 10;
+
+type ProjectSyncClient = {
+  importedProject: {
+    findMany: (args: Prisma.ImportedProjectFindManyArgs) => Promise<ImportedProjectRow[]>;
+  };
+  project: {
+    findUnique: (args: Prisma.ProjectFindUniqueArgs) => Promise<{ id: string; slug: string } | null>;
+    create: (args: Prisma.ProjectCreateArgs) => Promise<{ id: string }>;
+    update: (args: Prisma.ProjectUpdateArgs) => Promise<{ id: string }>;
+  };
+};
+
+type ImportedProjectRow = {
+  id: string;
+  source: string;
+  sourceProjectId: string;
+  sourceUrl: string;
+  name: string;
+  description: string;
+  category: string;
+  iconUrl: string;
+  sourceStatus: string | null;
+  tokenAddress: string | null;
+  sourceUserId: string | null;
+  twitterUrl: string;
+  twitterUserId: string | null;
+  twitterUsername: string | null;
+  twitterName: string | null;
+  twitterProfileImage: string | null;
+  twitterVerified: boolean | null;
+  upvotes: number | null;
+  downvotes: number | null;
+  createdAtFromSource: Date | null;
+  sourceCreatedAt: Date | null;
+  rawListPayload: Prisma.JsonValue;
+  rawDetailPayload: Prisma.JsonValue;
+};
+
+type ProjectionRow = {
+  source: string;
+  sourceProjectId: string;
+  sourceUrl: string | null;
+  name: string;
+  description: string | null;
+  category: string | null;
+  iconUrl: string | null;
+  sourceStatus: string | null;
+  tokenAddress: string | null;
+  sourceUserId: string | null;
+  twitterUrl: string | null;
+  twitterUserId: string | null;
+  twitterUsername: string | null;
+  twitterName: string | null;
+  twitterProfileImage: string | null;
+  twitterVerified: boolean | null;
+  twitterDescription: string | null;
+  twitterCreatedAt: Date | null;
+  twitterVerifiedType: string | null;
+  twitterUserUrl: string | null;
+  twitterFollowersCount: number | null;
+  twitterFollowingCount: number | null;
+  twitterTweetCount: number | null;
+  twitterListedCount: number | null;
+  twitterLikeCount: number | null;
+  twitterMediaCount: number | null;
+  upvotes: number | null;
+  downvotes: number | null;
+  createdAtFromSource: Date | null;
+  sourceCreatedAt: Date | null;
+  rawListPayload: Prisma.InputJsonValue;
+  rawDetailPayload: Prisma.InputJsonValue;
+};
+
+function asRecord(value: Prisma.JsonValue | null | undefined): Record<string, unknown> | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
+
+function asString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function asBoolean(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null;
+}
+
+function asNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.trunc(value);
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return Math.trunc(parsed);
+  }
+  return null;
+}
+
+function asDate(value: unknown): Date | null {
+  if (typeof value !== 'string') return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+
+function toInputJson(value: Prisma.JsonValue): Prisma.InputJsonValue {
+  return (value ?? {}) as Prisma.InputJsonValue;
+}
+function slugifyName(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-');
+
+  return slug.length > 0 ? slug : 'project';
+}
+
+function stableSuffix(sourceProjectId: string): string {
+  const normalized = sourceProjectId.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return normalized.length > 0 ? normalized : 'src';
+}
+
+async function resolveUniqueSlug({
+  prisma,
+  name,
+  source,
+  sourceProjectId,
+  existingProjectId,
+}: {
+  prisma: ProjectSyncClient;
+  name: string;
+  source: string;
+  sourceProjectId: string;
+  existingProjectId: string | null;
+}): Promise<string> {
+  const baseSlug = slugifyName(name);
+  const suffix = stableSuffix(sourceProjectId);
+
+  const candidates: string[] = [baseSlug];
+  if (suffix.length >= 8) {
+    candidates.push(`${baseSlug}-${suffix.slice(0, 8)}`);
+  }
+  if (suffix.length >= 12) {
+    candidates.push(`${baseSlug}-${suffix.slice(0, 12)}`);
+  }
+  candidates.push(`${baseSlug}-${suffix}`);
+
+  for (const candidate of candidates) {
+    const collision = await prisma.project.findUnique({
+      where: { slug: candidate },
+      select: { id: true, slug: true },
+    });
+
+    if (!collision || collision.id === existingProjectId) {
+      return candidate;
+    }
+  }
+
+  let attempt = 2;
+  while (attempt < 1000) {
+    const candidate = `${baseSlug}-${suffix}-${attempt}`;
+    const collision = await prisma.project.findUnique({
+      where: { slug: candidate },
+      select: { id: true, slug: true },
+    });
+
+    if (!collision || collision.id === existingProjectId) {
+      return candidate;
+    }
+
+    attempt += 1;
+  }
+
+  return `${baseSlug}-${source}-${stableSuffix(sourceProjectId).slice(0, 20)}`;
+}
+
+function extractTwitterFields(rawDetailPayload: Prisma.JsonValue): Pick<
+  ProjectionRow,
+  | 'twitterDescription'
+  | 'twitterCreatedAt'
+  | 'twitterVerifiedType'
+  | 'twitterUserUrl'
+  | 'twitterFollowersCount'
+  | 'twitterFollowingCount'
+  | 'twitterTweetCount'
+  | 'twitterListedCount'
+  | 'twitterLikeCount'
+  | 'twitterMediaCount'
+> {
+  const detail = asRecord(rawDetailPayload);
+  const twitterUser = asRecord(detail?.twitterUser as Prisma.JsonValue);
+  const metrics = asRecord(twitterUser?.public_metrics as Prisma.JsonValue);
+
+  return {
+    twitterDescription: asString(twitterUser?.description),
+    twitterCreatedAt: asDate(twitterUser?.created_at),
+    twitterVerifiedType: asString(twitterUser?.verified_type),
+    twitterUserUrl: asString(twitterUser?.url),
+    twitterFollowersCount: asNumber(metrics?.followers_count),
+    twitterFollowingCount: asNumber(metrics?.following_count),
+    twitterTweetCount: asNumber(metrics?.tweet_count),
+    twitterListedCount: asNumber(metrics?.listed_count),
+    twitterLikeCount: asNumber(metrics?.like_count),
+    twitterMediaCount: asNumber(metrics?.media_count),
+  };
+}
+
+function projectFromImported(imported: ImportedProjectRow): ProjectionRow {
+  const extractedTwitter = extractTwitterFields(imported.rawDetailPayload);
+
+  return {
+    source: imported.source,
+    sourceProjectId: imported.sourceProjectId,
+    sourceUrl: asString(imported.sourceUrl),
+    name: imported.name,
+    description: asString(imported.description),
+    category: asString(imported.category),
+    iconUrl: asString(imported.iconUrl),
+    sourceStatus: asString(imported.sourceStatus),
+    tokenAddress: asString(imported.tokenAddress),
+    sourceUserId: asString(imported.sourceUserId),
+    twitterUrl: asString(imported.twitterUrl),
+    twitterUserId: asString(imported.twitterUserId),
+    twitterUsername: asString(imported.twitterUsername),
+    twitterName: asString(imported.twitterName),
+    twitterProfileImage: asString(imported.twitterProfileImage),
+    twitterVerified: asBoolean(imported.twitterVerified),
+    ...extractedTwitter,
+    upvotes: imported.upvotes,
+    downvotes: imported.downvotes,
+    createdAtFromSource: imported.createdAtFromSource,
+    sourceCreatedAt: imported.sourceCreatedAt,
+    rawListPayload: toInputJson(imported.rawListPayload),
+    rawDetailPayload: toInputJson(imported.rawDetailPayload),
+  };
+}
+
+export async function syncProjectsFromImported({ prisma }: { prisma: ProjectSyncClient }) {
+  const importedRows = await prisma.importedProject.findMany({
+    select: {
+      id: true,
+      source: true,
+      sourceProjectId: true,
+      sourceUrl: true,
+      name: true,
+      description: true,
+      category: true,
+      iconUrl: true,
+      sourceStatus: true,
+      tokenAddress: true,
+      sourceUserId: true,
+      twitterUrl: true,
+      twitterUserId: true,
+      twitterUsername: true,
+      twitterName: true,
+      twitterProfileImage: true,
+      twitterVerified: true,
+      upvotes: true,
+      downvotes: true,
+      createdAtFromSource: true,
+      sourceCreatedAt: true,
+      rawListPayload: true,
+      rawDetailPayload: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  let imported = 0;
+  let updated = 0;
+  const rowErrors: Array<{ sourceProjectId: string; source: string; reason: string }> = [];
+
+  for (const row of importedRows) {
+    try {
+      const projection = projectFromImported(row);
+      const existing = await prisma.project.findUnique({
+        where: {
+          source_sourceProjectId: {
+            source: projection.source,
+            sourceProjectId: projection.sourceProjectId,
+          },
+        },
+        select: { id: true, slug: true },
+      });
+
+      const slug = await resolveUniqueSlug({
+        prisma,
+        name: projection.name,
+        source: projection.source,
+        sourceProjectId: projection.sourceProjectId,
+        existingProjectId: existing?.id ?? null,
+      });
+
+      if (existing) {
+        await prisma.project.update({
+          where: {
+            source_sourceProjectId: {
+              source: projection.source,
+              sourceProjectId: projection.sourceProjectId,
+            },
+          },
+          data: {
+            slug,
+            sourceUrl: projection.sourceUrl,
+            name: projection.name,
+            description: projection.description,
+            category: projection.category,
+            iconUrl: projection.iconUrl,
+            sourceStatus: projection.sourceStatus,
+            tokenAddress: projection.tokenAddress,
+            sourceUserId: projection.sourceUserId,
+            twitterUrl: projection.twitterUrl,
+            twitterUserId: projection.twitterUserId,
+            twitterUsername: projection.twitterUsername,
+            twitterName: projection.twitterName,
+            twitterProfileImage: projection.twitterProfileImage,
+            twitterVerified: projection.twitterVerified,
+            twitterDescription: projection.twitterDescription,
+            twitterCreatedAt: projection.twitterCreatedAt,
+            twitterVerifiedType: projection.twitterVerifiedType,
+            twitterUserUrl: projection.twitterUserUrl,
+            twitterFollowersCount: projection.twitterFollowersCount,
+            twitterFollowingCount: projection.twitterFollowingCount,
+            twitterTweetCount: projection.twitterTweetCount,
+            twitterListedCount: projection.twitterListedCount,
+            twitterLikeCount: projection.twitterLikeCount,
+            twitterMediaCount: projection.twitterMediaCount,
+            upvotes: projection.upvotes,
+            downvotes: projection.downvotes,
+            createdAtFromSource: projection.createdAtFromSource,
+            sourceCreatedAt: projection.sourceCreatedAt,
+            rawListPayload: projection.rawListPayload,
+            rawDetailPayload: projection.rawDetailPayload,
+          },
+        });
+        updated += 1;
+      } else {
+        await prisma.project.create({
+          data: {
+            slug,
+            ...projection,
+          },
+        });
+        imported += 1;
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Unknown error';
+      rowErrors.push({
+        sourceProjectId: row.sourceProjectId,
+        source: row.source,
+        reason,
+      });
+    }
+  }
+
+  return {
+    total: importedRows.length,
+    imported,
+    updated,
+    rejected: rowErrors.length,
+    rejectedRowsSample: rowErrors.slice(0, REJECTION_SAMPLE_LIMIT),
+  };
+}

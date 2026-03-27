@@ -70,3 +70,52 @@ model ImportedProjectUpdate {
   @@index([source, sourceProjectUuid])
   @@index([projectId, createdAtFromSource])
 }
+
+model Project {
+  id              String  @id @default(cuid())
+  slug            String  @unique
+  source          String
+  sourceProjectId String
+  sourceUrl       String?
+
+  name         String
+  description  String?
+  category     String?
+  iconUrl      String?
+  sourceStatus String?
+  tokenAddress String?
+
+  sourceUserId String?
+
+  twitterUrl          String?
+  twitterUserId       String?
+  twitterUsername     String?
+  twitterName         String?
+  twitterProfileImage String?
+  twitterVerified     Boolean?
+
+  twitterDescription    String?
+  twitterCreatedAt      DateTime?
+  twitterVerifiedType   String?
+  twitterUserUrl        String?
+  twitterFollowersCount Int?
+  twitterFollowingCount Int?
+  twitterTweetCount     Int?
+  twitterListedCount    Int?
+  twitterLikeCount      Int?
+  twitterMediaCount     Int?
+
+  upvotes   Int?
+  downvotes Int?
+
+  createdAtFromSource DateTime?
+  sourceCreatedAt     DateTime?
+
+  rawListPayload   Json @default("{}")
+  rawDetailPayload Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([source, sourceProjectId])
+}
