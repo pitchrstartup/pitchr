@@ -1,6 +1,3 @@
-import { access, stat } from 'node:fs/promises';
-import path from 'node:path';
-
 import { readProjectsFromFile, importBagsProjects } from '@/lib/import-bags';
 import { prisma } from '@/lib/prisma';
 import { requireCronBearerAuth } from '@/lib/cron-auth';
@@ -21,38 +18,11 @@ export async function POST(request: Request) {
 
   try {
     step = 'reading JSON file';
-    console.log(`[${LOG_PREFIX}] reading JSON file`);
-
-    const absoluteInputPath = path.resolve(process.cwd(), INPUT_FILE);
-    console.log(`[${LOG_PREFIX}] input file path`, absoluteInputPath);
-
-    let fileExists = false;
-    let fileSizeBytes: number | null = null;
-
-    try {
-      await access(absoluteInputPath);
-      fileExists = true;
-      const fileStats = await stat(absoluteInputPath);
-      fileSizeBytes = fileStats.size;
-    } catch {
-      fileExists = false;
-    }
-
-    console.log(`[${LOG_PREFIX}] input file exists`, fileExists);
-    console.log(`[${LOG_PREFIX}] input file size bytes`, fileSizeBytes);
-
     const projects = await readProjectsFromFile(INPUT_FILE);
-    console.log(`[${LOG_PREFIX}] JSON loaded`);
-
-    step = 'starting normalization';
-    console.log(`[${LOG_PREFIX}] starting normalization`);
 
     step = 'starting DB writes';
-    console.log(`[${LOG_PREFIX}] starting DB writes`);
-
     const result = await importBagsProjects({ prisma, projects });
 
-    step = 'finished import';
     console.log(`[${LOG_PREFIX}] finished`);
 
     return Response.json({
@@ -61,7 +31,6 @@ export async function POST(request: Request) {
       imported: result.imported,
       updated: result.updated,
       rejected: result.rejected,
-      payloadAudit: result.payloadAudit,
       rejectedRowsSample: result.rejectedRows.slice(0, 10),
       rowErrorsSample: result.rowErrors.slice(0, 10),
       durationMs: Date.now() - startedAt,
