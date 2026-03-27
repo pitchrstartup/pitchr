@@ -3,23 +3,28 @@ import path from 'node:path';
 
 import { readProjectsFromFile, importBagsProjects } from '@/lib/import-bags';
 import { prisma } from '@/lib/prisma';
+import { requireCronBearerAuth } from '@/lib/cron-auth';
 
 export const runtime = 'nodejs';
 
 const INPUT_FILE = 'data/bags-projects.raw.json';
+const LOG_PREFIX = 'cron-import-projects';
 
-export async function POST() {
+export async function POST(request: Request) {
   const startedAt = Date.now();
   let step = 'starting import';
 
-  console.log('[import-bags] starting import');
+  const authError = requireCronBearerAuth(request, LOG_PREFIX);
+  if (authError) return authError;
+
+  console.log(`[${LOG_PREFIX}] starting`);
 
   try {
     step = 'reading JSON file';
-    console.log('[import-bags] reading JSON file');
+    console.log(`[${LOG_PREFIX}] reading JSON file`);
 
     const absoluteInputPath = path.resolve(process.cwd(), INPUT_FILE);
-    console.log('[import-bags] input file path', absoluteInputPath);
+    console.log(`[${LOG_PREFIX}] input file path`, absoluteInputPath);
 
     let fileExists = false;
     let fileSizeBytes: number | null = null;
@@ -33,22 +38,22 @@ export async function POST() {
       fileExists = false;
     }
 
-    console.log('[import-bags] input file exists', fileExists);
-    console.log('[import-bags] input file size bytes', fileSizeBytes);
+    console.log(`[${LOG_PREFIX}] input file exists`, fileExists);
+    console.log(`[${LOG_PREFIX}] input file size bytes`, fileSizeBytes);
 
     const projects = await readProjectsFromFile(INPUT_FILE);
-    console.log('[import-bags] JSON loaded');
+    console.log(`[${LOG_PREFIX}] JSON loaded`);
 
     step = 'starting normalization';
-    console.log('[import-bags] starting normalization');
+    console.log(`[${LOG_PREFIX}] starting normalization`);
 
     step = 'starting DB writes';
-    console.log('[import-bags] starting DB writes');
+    console.log(`[${LOG_PREFIX}] starting DB writes`);
 
     const result = await importBagsProjects({ prisma, projects });
 
     step = 'finished import';
-    console.log('[import-bags] finished import');
+    console.log(`[${LOG_PREFIX}] finished`);
 
     return Response.json({
       ok: true,
@@ -66,7 +71,7 @@ export async function POST() {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const errorStack = error instanceof Error ? error.stack : undefined;
 
-    console.error('[import-bags] import failed', {
+    console.error(`[${LOG_PREFIX}] failed`, {
       step,
       error: errorMessage,
       stack: errorStack,
