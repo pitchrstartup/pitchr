@@ -44,3 +44,11 @@
 | `rawDetailPayload` | `ImportedProject.rawDetailPayload` | Direct column | Required (`Json` default) | Raw source payload retained. |
 | `createdAt` | Prisma default (`now()`) | System-generated | Required | DB creation timestamp. |
 | `updatedAt` | Prisma `@updatedAt` | System-generated | Required | DB update timestamp. |
+
+
+## Naming and mapping conventions (stability notes)
+
+- `ImportedProject.tokenAddress` is treated as the Bags token mint string and matched to `ImportedTokenMetrics.tokenMint` during projection.
+- `ImportedTokenMetrics.hasCreator` is the mirror-level boolean from launch-creators enrichment; `Project.hasLaunchCreator` is its projection-level alias.
+- `ImportedProjectUpdate.sourceProjectId` and `ImportedProjectUpdate.sourceProjectUuid` intentionally carry the same Bags project UUID value for compatibility with existing queries/indexes.
+- `createdAtFromSource` is the canonical mirrored source timestamp used across mirror/projection models; `sourceCreatedAt` remains optional and source-specific when present.

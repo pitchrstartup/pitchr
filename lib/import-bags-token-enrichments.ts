@@ -32,8 +32,17 @@ type LaunchCreator = {
   walletAddress?: unknown;
   address?: unknown;
   wallet?: unknown;
-  isCreator?: unknown;
 };
+
+class BagsHttpError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'BagsHttpError';
+    this.status = status;
+  }
+}
 
 function assertTokenEnrichmentCompatibility({ prisma }: { prisma: any }) {
   if (!prisma || typeof prisma !== 'object') {
@@ -143,14 +152,16 @@ async function fetchBagsEndpoint({
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status} ${response.statusText}`);
+        throw new BagsHttpError(`HTTP ${response.status} ${response.statusText}`, response.status);
       }
 
       const payload = await response.json();
       return payload;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown fetch error';
-      lastError = new Error(errorMessage);
+      lastError =
+        error instanceof Error
+          ? error
+          : new Error(error instanceof Error ? error.message : 'Unknown fetch error');
 
       if (attempt < REQUEST_RETRIES) {
         await sleep(REQUEST_DELAY_MS * attempt);
@@ -172,6 +183,7 @@ async function getProjectsBatch({
 }): Promise<{
   projects: TokenProjectRow[];
   totalProjects: number;
+  startCursor: number;
   nextCursor: number;
 }> {
   const where = {
@@ -184,7 +196,7 @@ async function getProjectsBatch({
   const totalProjects = await prisma.importedProject.count({ where });
 
   if (totalProjects === 0) {
-    await prisma.importCursor.upsert({
+    const persisted = await prisma.importCursor.upsert({
       where: { key: IMPORT_CURSOR_KEY },
       create: {
         key: IMPORT_CURSOR_KEY,
@@ -197,9 +209,10 @@ async function getProjectsBatch({
         batchSize,
         metadata: { source: SOURCE, totalProjects },
       },
+      select: { cursor: true },
     });
 
-    return { projects: [], totalProjects: 0, nextCursor: 0 };
+    return { projects: [], totalProjects: 0, startCursor: persisted.cursor, nextCursor: 0 };
   }
 
   const persisted = await prisma.importCursor.upsert({
@@ -249,24 +262,39 @@ async function getProjectsBatch({
 
   const nextCursor = (startCursor + projects.length) % totalProjects;
 
+  return {
+    projects,
+    totalProjects,
+    startCursor,
+    nextCursor,
+  };
+}
+
+async function persistCursor({
+  prisma,
+  cursor,
+  batchSize,
+  totalProjects,
+  projectsProcessed,
+}: {
+  prisma: any;
+  cursor: number;
+  batchSize: number;
+  totalProjects: number;
+  projectsProcessed: number;
+}) {
   await prisma.importCursor.update({
     where: { key: IMPORT_CURSOR_KEY },
     data: {
-      cursor: nextCursor,
+      cursor,
       batchSize,
       metadata: {
         source: SOURCE,
         totalProjects,
-        projectsProcessed: projects.length,
+        projectsProcessed,
       },
     },
   });
-
-  return {
-    projects,
-    totalProjects,
-    nextCursor,
-  };
 }
 
 function normalizeClaimStats(responsePayload: unknown) {
@@ -334,7 +362,7 @@ export async function importBagsTokenEnrichments({
 
   const resolvedBatchSize = normalizeBatchSize(batchSize);
 
-  const { projects, nextCursor } = await getProjectsBatch({
+  const { projects, totalProjects, startCursor, nextCursor } = await getProjectsBatch({
     prisma,
     batchSize: resolvedBatchSize,
   });
@@ -350,6 +378,8 @@ export async function importBagsTokenEnrichments({
   let inserted = 0;
   let updated = 0;
   let failed = 0;
+  let noData = 0;
+  let partialFailures = 0;
 
   for (const tokenMint of tokens) {
     const existing = await prisma.importedTokenMetrics.findUnique({
@@ -379,6 +409,7 @@ export async function importBagsTokenEnrichments({
     let lifetimeFeesPayload: any = null;
     let claimStatsPayload: any = null;
     let launchCreatorsPayload: any = null;
+    let launchCreatorsNoData = false;
 
     try {
       lifetimeFeesPayload = await fetchBagsEndpoint({ endpoint: ENDPOINTS.lifetimeFees, tokenMint, apiKey });
@@ -395,12 +426,17 @@ export async function importBagsTokenEnrichments({
     try {
       launchCreatorsPayload = await fetchBagsEndpoint({ endpoint: ENDPOINTS.launchCreators, tokenMint, apiKey });
     } catch (error) {
-      errors.push(`launchCreators:${error instanceof Error ? error.message : 'unknown'}`);
+      if (error instanceof BagsHttpError && error.status === 404) {
+        launchCreatorsNoData = true;
+      } else {
+        errors.push(`launchCreators:${error instanceof Error ? error.message : 'unknown'}`);
+      }
     }
 
-    const hadSuccess = Boolean(lifetimeFeesPayload || claimStatsPayload || launchCreatorsPayload);
+    const successfulEndpoints = Number(Boolean(lifetimeFeesPayload)) + Number(Boolean(claimStatsPayload));
+    const hadUsefulData = successfulEndpoints > 0 || launchCreatorsPayload !== null || launchCreatorsNoData;
 
-    if (!hadSuccess) {
+    if (!hadUsefulData) {
       failed += 1;
       console.warn('[cron-import-token-enrichments] token skipped: all endpoints failed', {
         tokenMint,
@@ -422,11 +458,17 @@ export async function importBagsTokenEnrichments({
 
     const launchCreators = launchCreatorsPayload
       ? normalizeLaunchCreators(launchCreatorsPayload?.response)
-      : {
-          creatorWallets: (existing?.creatorWallets as Prisma.JsonValue) ?? [],
-          creatorCount: existing?.creatorCount ?? null,
-          hasCreator: existing?.hasCreator ?? null,
-        };
+      : launchCreatorsNoData
+        ? {
+            creatorWallets: [],
+            creatorCount: 0,
+            hasCreator: false,
+          }
+        : {
+            creatorWallets: (existing?.creatorWallets as Prisma.JsonValue) ?? [],
+            creatorCount: existing?.creatorCount ?? null,
+            hasCreator: existing?.hasCreator ?? null,
+          };
 
     try {
       await prisma.importedTokenMetrics.upsert({
@@ -448,7 +490,7 @@ export async function importBagsTokenEnrichments({
           creatorWallets: launchCreators.creatorWallets,
           rawLifetimeFeesPayload: lifetimeFeesPayload ?? {},
           rawClaimStatsPayload: claimStatsPayload ?? {},
-          rawLaunchCreatorsPayload: launchCreatorsPayload ?? {},
+          rawLaunchCreatorsPayload: launchCreatorsPayload ?? (launchCreatorsNoData ? { noData: true } : {}),
           lastFetchedAt: new Date(),
         },
         update: {
@@ -461,7 +503,9 @@ export async function importBagsTokenEnrichments({
           creatorWallets: launchCreators.creatorWallets,
           rawLifetimeFeesPayload: lifetimeFeesPayload ?? existing?.rawLifetimeFeesPayload ?? {},
           rawClaimStatsPayload: claimStatsPayload ?? existing?.rawClaimStatsPayload ?? {},
-          rawLaunchCreatorsPayload: launchCreatorsPayload ?? existing?.rawLaunchCreatorsPayload ?? {},
+          rawLaunchCreatorsPayload:
+            launchCreatorsPayload ??
+            (launchCreatorsNoData ? { noData: true } : existing?.rawLaunchCreatorsPayload ?? {}),
           lastFetchedAt: new Date(),
         },
       });
@@ -472,11 +516,16 @@ export async function importBagsTokenEnrichments({
         inserted += 1;
       }
 
+      if (launchCreatorsNoData) {
+        noData += 1;
+      }
+
       if (errors.length > 0) {
-        failed += 1;
+        partialFailures += 1;
         console.warn('[cron-import-token-enrichments] token partial failure', {
           tokenMint,
           errors,
+          launchCreatorsNoData,
         });
       }
     } catch (error) {
@@ -488,13 +537,26 @@ export async function importBagsTokenEnrichments({
     }
   }
 
+  await persistCursor({
+    prisma,
+    cursor: nextCursor,
+    batchSize: resolvedBatchSize,
+    totalProjects,
+    projectsProcessed: projects.length,
+  });
+
   return {
     batchSize: resolvedBatchSize,
+    totalProjects,
+    cursor: startCursor,
+    nextCursor,
+    cursorAdvanced: true,
     projectsProcessed: projects.length,
     tokensProcessed: tokens.length,
     inserted,
     updated,
     failed,
-    nextCursor,
+    noData,
+    partialFailures,
   };
 }

@@ -5,8 +5,8 @@ Pitchr currently contains a **working Bags ingestion and projection pipeline** p
 ## Current stable flow
 
 1. `POST /api/import-bags`
-   - Reads `data/bags-projects.raw.json`
-   - Normalizes and upserts into `ImportedProject`
+   - Loads from Bags live API by default (with optional local fallback snapshot `data/bags-projects.raw.json`)
+   - Normalizes and upserts into `ImportedProject` with source/counter metadata in response
 2. `POST /api/import-bags-updates`
    - Fetches updates from Bags API per imported project
    - Normalizes and upserts into `ImportedProjectUpdate`
@@ -39,6 +39,8 @@ See docs for details:
 - `BAGS_API_KEY`
 - `BAGS_UPDATES_BATCH_SIZE` (optional, default `50`, max `200`)
 - `BAGS_TOKEN_ENRICHMENTS_BATCH_SIZE` (optional, default `30`, max `200`)
+- `BAGS_PROJECTS_INPUT_MODE` (optional: `auto` default, `live`, `file`)
+- `SYNC_PROJECTS_BATCH_SIZE` (optional: `0` = full run, otherwise batched up to `500`)
 
 ## cron-job.org setup (no Vercel Cron)
 
@@ -49,7 +51,7 @@ Create a dedicated cron-job.org job for token enrichments:
 - Header: `Authorization: Bearer <CRON_SECRET>`
 - Frequency: start conservative (e.g. every 5–10 minutes), then tune batch size and cadence together.
 
-Keep existing jobs unchanged for:
+Also schedule these routes with the same header:
 - `POST /api/import-bags`
 - `POST /api/import-bags-updates`
 - `POST /api/sync-projects`

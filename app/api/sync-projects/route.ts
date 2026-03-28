@@ -17,7 +17,14 @@ export async function POST(request: Request) {
   try {
     const result = await syncProjectsFromImported({ prisma });
 
-    console.log(`[${LOG_PREFIX}] finished`);
+    console.log(`[${LOG_PREFIX}] finished`, {
+      mode: result.mode,
+      total: result.total,
+      imported: result.imported,
+      updated: result.updated,
+      rejected: result.rejected,
+      nextCursor: result.nextCursor,
+    });
 
     return Response.json({
       ok: true,
@@ -40,9 +47,15 @@ export async function POST(request: Request) {
         error: errorMessage,
         stack: isProduction ? undefined : errorStack,
         total: 0,
+        totalRows: 0,
         imported: 0,
         updated: 0,
         rejected: 0,
+        mode: 'full',
+        batchSize: 0,
+        cursor: null,
+        nextCursor: null,
+        cursorAdvanced: false,
         rejectedRowsSample: [],
         durationMs: Date.now() - startedAt,
       },

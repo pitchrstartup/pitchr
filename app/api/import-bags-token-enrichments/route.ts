@@ -19,17 +19,31 @@ export async function POST(request: Request) {
     step = 'importing token enrichments';
     const result = await importBagsTokenEnrichments({ prisma });
 
-    console.log(`[${LOG_PREFIX}] finished`);
-
-    return Response.json({
-      ok: true,
-      batchSize: result.batchSize,
+    console.log(`[${LOG_PREFIX}] finished`, {
       projectsProcessed: result.projectsProcessed,
       tokensProcessed: result.tokensProcessed,
       inserted: result.inserted,
       updated: result.updated,
       failed: result.failed,
+      noData: result.noData,
+      partialFailures: result.partialFailures,
       nextCursor: result.nextCursor,
+    });
+
+    return Response.json({
+      ok: true,
+      batchSize: result.batchSize,
+      totalProjects: result.totalProjects,
+      projectsProcessed: result.projectsProcessed,
+      tokensProcessed: result.tokensProcessed,
+      inserted: result.inserted,
+      updated: result.updated,
+      failed: result.failed,
+      noData: result.noData,
+      partialFailures: result.partialFailures,
+      cursor: result.cursor,
+      nextCursor: result.nextCursor,
+      cursorAdvanced: result.cursorAdvanced,
       durationMs: Date.now() - startedAt,
     });
   } catch (error) {
@@ -50,12 +64,17 @@ export async function POST(request: Request) {
         error: errorMessage,
         stack: isProduction ? undefined : errorStack,
         batchSize: 0,
+        totalProjects: 0,
         projectsProcessed: 0,
         tokensProcessed: 0,
         inserted: 0,
         updated: 0,
         failed: 0,
+        noData: 0,
+        partialFailures: 0,
+        cursor: null,
         nextCursor: null,
+        cursorAdvanced: false,
         durationMs: Date.now() - startedAt,
       },
       { status: 500 },
