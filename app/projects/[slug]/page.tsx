@@ -27,6 +27,7 @@ async function getProject(slug: string): Promise<ProjectDetail | null> {
       twitterUsername: true,
       twitterVerified: true,
       hasLaunchCreator: true,
+      tokenAddress: true,
       claimsUniqueWallets: true,
       creatorCount: true,
       twitterFollowersCount: true,
