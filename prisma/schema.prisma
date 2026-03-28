@@ -81,6 +81,7 @@ model ImportedTokenMetrics {
   claimsUniqueWallets    Int?
   creatorCount           Int?
   hasCreator             Boolean?
+  creatorsDataStatus     String?
   creatorWallets         Json    @default("[]")
   rawLifetimeFeesPayload Json    @default("{}")
   rawClaimStatsPayload   Json    @default("{}")
@@ -137,6 +138,13 @@ model Project {
   claimsUniqueWallets   Int?
   creatorCount          Int?
   hasLaunchCreator      Boolean?
+  creatorsDataStatus    String?
+  hasToken              Boolean?
+  hasLinkedCreator      Boolean?
+  creatorProjectsCount  Int?
+  creatorTokenProjectsCount Int?
+  updatesCount          Int?
+  lastUpdateAt          DateTime?
 
   createdAtFromSource DateTime?
   sourceCreatedAt     DateTime?
@@ -144,10 +152,88 @@ model Project {
   rawListPayload   Json @default("{}")
   rawDetailPayload Json @default("{}")
 
+  projectCreators ProjectCreator[]
+  projectTokens   ProjectToken[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([source, sourceProjectId])
+}
+
+model Creator {
+  id                   String  @id @default(cuid())
+  source               String
+  identityKey          String  @unique
+  sourceUserId         String?
+  twitterUserId        String?
+  twitterUsername      String?
+  twitterName          String?
+  twitterVerified      Boolean?
+  twitterFollowersCount Int?
+  twitterProfileImage  String?
+
+  projectLinks ProjectCreator[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([source, sourceUserId])
+  @@index([source, twitterUserId])
+}
+
+model Token {
+  id                   String  @id @default(cuid())
+  source               String
+  mint                 String
+  lifetimeFeesLamports String?
+  claimsTotalLamports  String?
+  claimsCreatorLamports String?
+  claimsUniqueWallets  Int?
+  creatorCount         Int?
+  hasCreator           Boolean?
+  creatorsDataStatus   String?
+  lastFetchedAt        DateTime?
+
+  projectLinks ProjectToken[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([source, mint])
+  @@index([mint])
+}
+
+model ProjectCreator {
+  id          String  @id @default(cuid())
+  projectId   String
+  creatorId   String
+  role        String  @default("primary")
+  matchSource String?
+  confidence  Float?
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator Creator @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, creatorId, role])
+  @@index([creatorId, role])
+  @@index([projectId, role])
+}
+
+model ProjectToken {
+  id        String   @id @default(cuid())
+  projectId String
+  tokenId   String
+  role      String   @default("primary")
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  token   Token   @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, tokenId, role])
+  @@index([tokenId, role])
+  @@index([projectId, role])
 }
 
 model ImportCursor {

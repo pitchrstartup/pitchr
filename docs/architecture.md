@@ -4,8 +4,12 @@
 
 - **ImportedProject** = mirror of Bags project records (normalized + raw payload retention).
 - **ImportedProjectUpdate** = mirror of Bags project updates feed.
-- **ImportedTokenMetrics** = mirror of targeted Bags token enrichment endpoints (`lifetime-fees`, `claim-stats`, `creators`) keyed by `(source, tokenMint)`.
-- **Project** = product-level projection read model derived from `ImportedProject` plus lightweight projected token metrics.
+- **ImportedTokenMetrics** = mirror of targeted Bags token enrichment endpoints (`lifetime-fees`, `claim-stats`, `creators`) keyed by `(source, tokenMint)` with explicit creators fetch status.
+- **Creator** = structured product entity for project launcher identity (canonical key based on source user or twitter ID).
+- **Token** = structured product entity for token-level metrics projected from `ImportedTokenMetrics`.
+- **ProjectCreator** = link table between `Project` and `Creator`.
+- **ProjectToken** = link table between `Project` and `Token`.
+- **Project** = product-level projection read model derived from mirrors plus relational/read-side signals.
 
 ## Current data flow
 
@@ -31,20 +35,26 @@
      - `/token-launch/lifetime-fees`
      - `/token-launch/claim-stats`
      - `/token-launch/creators`
-   - 404 on `/token-launch/creators` is treated as **normal no-data**, not as hard failure.
+   - 404 on `/token-launch/creators` is treated as **no-data** and tracked explicitly in `creatorsDataStatus`.
    - Cursor behavior (failure-safe): cursor advances only after batch completion.
 
-4. **ImportedProject + ImportedTokenMetrics -> Project**
+4. **ImportedProject + ImportedProjectUpdate + ImportedTokenMetrics -> Project (+ Creator/Token graph)**
    - Trigger: `POST /api/sync-projects`
    - Input:
      - default full sync (`SYNC_PROJECTS_BATCH_SIZE=0`)
      - optional batched sync (`SYNC_PROJECTS_BATCH_SIZE > 0`) with persisted cursor `bags:sync-projects:cursor:v1`
-   - Logic: map imported fields into product projection, derive collision-safe slug, project token metrics, upsert by `(source, sourceProjectId)`.
+   - Logic:
+     - map imported fields into `Project`, derive collision-safe slug
+     - project token metrics
+     - upsert structured `Creator` and `Token`
+     - upsert `ProjectCreator` / `ProjectToken` links
+     - compute product signals (`hasToken`, `hasLinkedCreator`, `creatorProjectsCount`, `creatorTokenProjectsCount`, `updatesCount`, `lastUpdateAt`)
+     - upsert by `(source, sourceProjectId)`.
 
 ## Guardrails
 
 - Cron routes require `Authorization: Bearer <CRON_SECRET>`.
 - `BAGS_API_KEY` is used server-side for token enrichments.
 - No Vercel Cron assumption: cron-job.org remains the external scheduler for all cron routes.
-- Mirror-first architecture stays intact: source mirrors (`ImportedProject*`, `ImportedTokenMetrics`) are separated from product projection (`Project`).
+- Mirror-first architecture stays intact: source mirrors (`ImportedProject*`, `ImportedTokenMetrics`) are separated from product entities/read models (`Project`, `Creator`, `Token`, relation tables).
 - Counters are explicit for operational debugging: imported/updated/rejected/failed/no-data/partial-failures and cursor state.

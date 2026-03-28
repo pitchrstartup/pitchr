@@ -1,4 +1,4 @@
-# Project Status (as of 2026-03-27)
+# Project Status (as of 2026-03-28)
 
 ## Current architecture status
 
@@ -9,6 +9,10 @@
   - `ImportedProjectUpdate`
   - `ImportedTokenMetrics`
   - `Project`
+  - `Creator`
+  - `Token`
+  - `ProjectCreator`
+  - `ProjectToken`
   - `ImportCursor` (for incremental batch cursors)
 - Cron-protected API routes:
   - `POST /api/import-bags`
@@ -28,6 +32,11 @@
 - Token creator endpoint 404 is treated as normal no-data, without inflating hard-failure counters.
 - Sync route supports optional batching via `SYNC_PROJECTS_BATCH_SIZE` while keeping full-sync default.
 - API responses/logs include clearer operational counters and cursor state.
+- P0 productization projection is additive:
+  - `sync-projects` now projects relational entities (`Creator`, `Token`) and link tables (`ProjectCreator`, `ProjectToken`)
+  - `Project` now includes relation-derived signals (`hasToken`, `hasLinkedCreator`, `creatorProjectsCount`, `creatorTokenProjectsCount`)
+  - `Project` now includes activity aggregates from mirrored updates (`updatesCount`, `lastUpdateAt`)
+  - creators endpoint semantics are explicit via `ImportedTokenMetrics.creatorsDataStatus` (`fetched` / `no_data` / `error`)
 
 ## Scheduler assumptions
 
@@ -44,5 +53,5 @@ Current production assumptions:
 ## Next development priorities
 
 1. Add lightweight monitoring/alerting for cron partial-failure ratios.
-2. Add integration tests for import/update/enrichment/sync sequence.
-3. Add an operational replay playbook for cursor reset/recovery.
+2. Add integration tests for import/update/enrichment/sync + relation projection sequence.
+3. Add an operational replay playbook for cursor reset/recovery including relation rebuild.

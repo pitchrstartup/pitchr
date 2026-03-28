@@ -1,4 +1,4 @@
-# Project Field Mapping (`ImportedProject` + `ImportedTokenMetrics` -> `Project`)
+# Project Field Mapping (`ImportedProject` + `ImportedProjectUpdate` + `ImportedTokenMetrics` -> `Project` + `Creator` + `Token`)
 
 | Project field | Source path | Mapping type | Nullable? | Notes |
 | --- | --- | --- | --- | --- |
@@ -38,6 +38,13 @@
 | `claimsUniqueWallets` | `ImportedTokenMetrics.claimsUniqueWallets` matched by token mint | Derived from claim-stats mirror | Nullable | Unique claiming wallets count. |
 | `creatorCount` | `ImportedTokenMetrics.creatorCount` matched by token mint | Derived from launch-creators mirror | Nullable | Lightweight creator presence signal. |
 | `hasLaunchCreator` | `ImportedTokenMetrics.hasCreator` matched by token mint | Derived boolean | Nullable | Minimal trust/presence signal for product logic. |
+| `creatorsDataStatus` | `ImportedTokenMetrics.creatorsDataStatus` matched by token mint | Direct column | Nullable | Distinguishes fetched/no-data/error for creators endpoint semantics. |
+| `hasToken` | `ProjectToken` relation existence (primary role) | Derived relation signal | Nullable | Product read-side shortcut; no longer inferred only from raw token string. |
+| `hasLinkedCreator` | `ProjectCreator` relation existence (primary role) | Derived relation signal | Nullable | Product read-side shortcut. |
+| `creatorProjectsCount` | count of `ProjectCreator` rows for linked creator | Derived relation signal | Nullable | Cross-project creator intelligence starter signal. |
+| `creatorTokenProjectsCount` | count of linked creator projects having at least one `ProjectToken` | Derived relation signal | Nullable | Creator history quality signal. |
+| `updatesCount` | aggregate count from `ImportedProjectUpdate` by `projectId` | Derived aggregate | Nullable | Activity signal projected without exposing full update history. |
+| `lastUpdateAt` | max(`updatedAtFromSource`, `createdAtFromSource`) from `ImportedProjectUpdate` | Derived aggregate | Nullable | Recency signal projected from mirrored updates. |
 | `createdAtFromSource` | `ImportedProject.createdAtFromSource` | Direct column | Nullable | Source creation timestamp mirror. |
 | `sourceCreatedAt` | `ImportedProject.sourceCreatedAt` | Direct column | Nullable | Source-specific created timestamp mirror. |
 | `rawListPayload` | `ImportedProject.rawListPayload` | Direct column | Required (`Json` default) | Raw source payload retained. |
@@ -50,5 +57,21 @@
 
 - `ImportedProject.tokenAddress` is treated as the Bags token mint string and matched to `ImportedTokenMetrics.tokenMint` during projection.
 - `ImportedTokenMetrics.hasCreator` is the mirror-level boolean from launch-creators enrichment; `Project.hasLaunchCreator` is its projection-level alias.
+- `ImportedTokenMetrics.creatorsDataStatus` carries creators endpoint semantics:
+  - `fetched` = endpoint call succeeded (can still be empty creators list)
+  - `no_data` = endpoint returned explicit no-data (404 contract)
+  - `error` = endpoint failed
+- creator identity is intentionally conservative:
+  - primary key strategy: `source:user:<sourceUserId>`
+  - fallback strategy: `source:twitter:<twitterUserId>`
+  - no fuzzy merge is performed in P0.
 - `ImportedProjectUpdate.sourceProjectId` and `ImportedProjectUpdate.sourceProjectUuid` intentionally carry the same Bags project UUID value for compatibility with existing queries/indexes.
 - `createdAtFromSource` is the canonical mirrored source timestamp used across mirror/projection models; `sourceCreatedAt` remains optional and source-specific when present.
+
+## New structured product entities (P0)
+
+- **Creator** is projected from `ImportedProject` and extracted Twitter fields.
+- **Token** is projected from `ImportedTokenMetrics`.
+- **ProjectCreator** links each `Project` to one primary `Creator` when identity is known.
+- **ProjectToken** links each `Project` to one primary `Token` when token mint is known.
+- Raw payloads remain on mirror/projection rows for replay/debug; relational entities hold only minimal structured fields for product intelligence.
