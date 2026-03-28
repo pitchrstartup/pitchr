@@ -1,15 +1,16 @@
 export function ProjectListSkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2" aria-hidden>
-      {Array.from({ length: 6 }).map((_, index) => (
-        <div key={index} className="animate-pulse rounded-card border border-border bg-surface p-4">
-          <div className="h-1 w-full rounded bg-gray-100" />
-          <div className="mt-4 h-4 w-2/3 rounded bg-gray-100" />
-          <div className="mt-2 h-3 w-full rounded bg-gray-100" />
-          <div className="mt-2 h-3 w-4/5 rounded bg-gray-100" />
-          <div className="mt-4 h-10 w-full rounded-button bg-gray-100" />
+    <div className="mx-auto w-full max-w-xl" aria-hidden>
+      <div className="animate-pulse rounded-card border border-border bg-surface p-4 sm:p-5">
+        <div className="mb-3 h-14 w-14 rounded-logo bg-gray-100" />
+        <div className="h-5 w-2/3 rounded bg-gray-100" />
+        <div className="mt-2 h-4 w-full rounded bg-gray-100" />
+        <div className="mt-2 h-4 w-5/6 rounded bg-gray-100" />
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <div className="h-14 rounded-xl bg-gray-100" />
+          <div className="h-14 rounded-xl bg-gray-100" />
         </div>
-      ))}
+      </div>
     </div>
   );
 }
@@ -17,7 +18,7 @@ export function ProjectListSkeleton() {
 export function EmptyState() {
   return (
     <div className="rounded-card border border-border bg-surface p-8 text-center">
-      <p className="text-sm text-text-secondary">No projects available right now.</p>
+      <p className="text-sm text-text-secondary">No projects available for this deck right now.</p>
     </div>
   );
 }

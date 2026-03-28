@@ -7,6 +7,9 @@ export type ProjectListItem = {
   twitterUsername: string | null;
   twitterVerified: boolean | null;
   hasLaunchCreator: boolean | null;
+  tokenAddress: string | null;
+  claimsUniqueWallets: number | null;
+  creatorCount: number | null;
   createdAtFromSource: string | null;
 };
 
@@ -21,6 +24,7 @@ export type ProjectDetail = {
   twitterUsername: string | null;
   twitterVerified: boolean | null;
   hasLaunchCreator: boolean | null;
+  tokenAddress: string | null;
   claimsUniqueWallets: number | null;
   creatorCount: number | null;
   twitterFollowersCount: number | null;

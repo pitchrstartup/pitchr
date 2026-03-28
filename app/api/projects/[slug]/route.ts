@@ -23,6 +23,7 @@ export async function GET(_request: Request, context: Context) {
       twitterUsername: true,
       twitterVerified: true,
       hasLaunchCreator: true,
+      tokenAddress: true,
       claimsUniqueWallets: true,
       creatorCount: true,
       twitterFollowersCount: true,
