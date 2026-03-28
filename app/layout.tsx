@@ -1,16 +1,17 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Geist } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
+const geist = Geist({
   subsets: ["latin"],
-  variable: "--font-inter",
+  variable: "--font-geist",
   display: "swap",
+  weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
   title: "Pitchr",
-  description: "Empty base ready for rebuild",
+  description: "Back. Pass. Win.",
 };
 
 export default function RootLayout({
@@ -19,8 +20,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={inter.variable}>
-      <body className="font-sans antialiased">{children}</body>
+    <html lang="en" className={geist.variable}>
+      <body className="font-sans antialiased bg-background text-text-primary">{children}</body>
     </html>
   );
 }

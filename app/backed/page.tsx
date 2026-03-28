@@ -1,12 +1,12 @@
 import { AppShell } from "@/components/AppShell";
 
-export default function LeaderboardPage() {
+export default function BackedPage() {
   return (
     <AppShell>
       <section className="rounded-card border border-border bg-surface p-6 shadow-card">
-        <h1 className="text-2xl font-medium tracking-[-0.03em]">Leaderboard</h1>
+        <h1 className="text-2xl font-medium tracking-[-0.03em]">Backed</h1>
         <p className="mt-2 text-sm text-text-secondary">
-          Coming next phase. This MVP focuses on Discover and project details from the Project read model.
+          Public MVP: backing history arrives with user accounts in phase 2.
         </p>
       </section>
     </AppShell>

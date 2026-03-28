@@ -9,25 +9,25 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "#0a0a0f",
-        surface: "#13131a",
-        "surface-2": "#1c1c27",
-        border: "#2a2a38",
-        "text-primary": "#f0f0f8",
-        "text-secondary": "#8888aa",
-        accent: "#6366f1",
-        "swipe-right": "#22c55e",
-        "swipe-left": "#ef4444",
+        background: "#F9FAFB",
+        surface: "#FFFFFF",
+        border: "#E5E7EB",
+        "text-primary": "#1A1A1A",
+        "text-secondary": "#6B7280",
+        back: "#22C55E",
+        "back-strong": "#16A34A",
+        pass: "#EF4444",
       },
       fontFamily: {
-        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
+        sans: ["var(--font-geist)", "Inter", "DM Sans", "system-ui", "sans-serif"],
       },
       borderRadius: {
-        card: "1.25rem",
+        button: "8px",
+        logo: "10px",
+        card: "16px",
       },
       boxShadow: {
-        card: "0 4px 32px rgba(0,0,0,0.5)",
-        glow: "0 0 24px rgba(99,102,241,0.2)",
+        card: "0 1px 2px rgba(16, 24, 40, 0.04)",
       },
     },
   },
