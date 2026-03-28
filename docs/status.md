@@ -21,34 +21,28 @@
   - `lib/import-bags-token-enrichments.ts`
   - `lib/sync-projects.ts`
 
-### Verified working
+### Verified working by code audit and corrective pass
 
-- End-to-end import of Bags project snapshot into `ImportedProject`.
-- End-to-end import of Bags updates into `ImportedProjectUpdate`.
-- Incremental batch execution for `POST /api/import-bags-updates` with persisted cursor and wrap-around.
-- Incremental batch execution for `POST /api/import-bags-token-enrichments` with dedicated persisted cursor and wrap-around.
-- Projection sync from `ImportedProject` (+ token metrics enrichment when available) into `Project`.
-- External scheduler wiring (cron-job.org) calling cron routes with bearer auth.
-
-### Not yet verified / not yet built
-
-- End-user product surfaces consuming new token metrics fields in `Project`.
-- Monitoring/alerting for cron failures and drift.
-- Backfill and replay playbook documentation for failure recovery.
-- Automated integration tests covering full cron sequence.
+- `import-bags` no longer depends only on a local file in production: default mode is live API first, with local file fallback in `auto` mode.
+- Incremental batch execution for updates/token-enrichments now advances cursor only after batch processing completes.
+- Token creator endpoint 404 is treated as normal no-data, without inflating hard-failure counters.
+- Sync route supports optional batching via `SYNC_PROJECTS_BATCH_SIZE` while keeping full-sync default.
+- API responses/logs include clearer operational counters and cursor state.
 
 ## Scheduler assumptions
 
 Current production assumptions:
 
-- Scheduler sends requests to the cron routes in a reliable order.
-- Scheduler provides `Authorization: Bearer <CRON_SECRET>`.
+- Scheduler sends requests to cron routes with `Authorization: Bearer <CRON_SECRET>`.
 - `CRON_SECRET`, `DATABASE_URL`, and `BAGS_API_KEY` are configured correctly in runtime environment.
-- `BAGS_TOKEN_ENRICHMENTS_BATCH_SIZE` and `BAGS_UPDATES_BATCH_SIZE` are tuned to avoid route timeouts.
-- `data/bags-projects.raw.json` exists and is refreshed out-of-band when needed.
+- Batch sizes are tuned to avoid route timeouts:
+  - `BAGS_UPDATES_BATCH_SIZE`
+  - `BAGS_TOKEN_ENRICHMENTS_BATCH_SIZE`
+  - optional `SYNC_PROJECTS_BATCH_SIZE`
+- `BAGS_PROJECTS_INPUT_MODE` is set appropriately (`auto` recommended for Vercel).
 
 ## Next development priorities
 
-1. Add lightweight operational checks for each cron route (success/failure visibility).
-2. Add minimal integration test coverage for normalize/import/sync critical path.
-3. Start product-facing read APIs/UI on top of `Project` without changing ingestion architecture.
+1. Add lightweight monitoring/alerting for cron partial-failure ratios.
+2. Add integration tests for import/update/enrichment/sync sequence.
+3. Add an operational replay playbook for cursor reset/recovery.

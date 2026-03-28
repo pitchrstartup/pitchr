@@ -19,17 +19,32 @@ export async function POST(request: Request) {
     step = 'importing updates';
     const result = await importBagsProjectUpdates({ prisma });
 
-    console.log(`[${LOG_PREFIX}] finished`);
+    console.log(`[${LOG_PREFIX}] finished`, {
+      projectsProcessed: result.projectsProcessed,
+      totalUpdatesFetched: result.totalUpdatesFetched,
+      imported: result.imported,
+      updated: result.updated,
+      failed: result.failed,
+      rejected: result.rejected,
+      nextCursor: result.nextCursor,
+    });
 
     return Response.json({
       ok: true,
       batchSize: result.batchSize,
+      totalProjects: result.totalProjects,
       projectsProcessed: result.projectsProcessed,
+      projectsWithoutUpdates: result.projectsWithoutUpdates,
       updatesFetched: result.totalUpdatesFetched,
-      inserted: result.imported,
+      imported: result.imported,
       updated: result.updated,
+      rejected: result.rejected,
       failed: result.failed,
+      cursor: result.cursor,
       nextCursor: result.nextCursor,
+      cursorAdvanced: result.cursorAdvanced,
+      rejectedRowsSample: result.rejectedRows.slice(0, 10),
+      rowErrorsSample: result.rowErrors.slice(0, 10),
       durationMs: Date.now() - startedAt,
     });
   } catch (error) {
@@ -50,12 +65,17 @@ export async function POST(request: Request) {
         error: errorMessage,
         stack: isProduction ? undefined : errorStack,
         batchSize: 0,
+        totalProjects: 0,
         projectsProcessed: 0,
+        projectsWithoutUpdates: 0,
         updatesFetched: 0,
-        inserted: 0,
+        imported: 0,
         updated: 0,
+        rejected: 0,
         failed: 0,
+        cursor: null,
         nextCursor: null,
+        cursorAdvanced: false,
         durationMs: Date.now() - startedAt,
       },
       { status: 500 },

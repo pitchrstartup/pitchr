@@ -1,4 +1,4 @@
-import { readProjectsFromFile, importBagsProjects } from '@/lib/import-bags';
+import { loadBagsProjects, importBagsProjects } from '@/lib/import-bags';
 import { prisma } from '@/lib/prisma';
 import { requireCronBearerAuth } from '@/lib/cron-auth';
 
@@ -14,25 +14,44 @@ export async function POST(request: Request) {
   const authError = requireCronBearerAuth(request, LOG_PREFIX);
   if (authError) return authError;
 
-  console.log(`[${LOG_PREFIX}] starting`);
+  const inputMode = process.env.BAGS_PROJECTS_INPUT_MODE ?? 'auto';
+
+  console.log(`[${LOG_PREFIX}] starting`, { inputMode, inputFile: INPUT_FILE });
 
   try {
-    step = 'reading JSON file';
-    const projects = await readProjectsFromFile(INPUT_FILE);
+    step = 'loading projects from configured source';
+    const loaded = await loadBagsProjects({
+      inputFile: INPUT_FILE,
+      inputMode,
+    });
 
-    step = 'starting DB writes';
-    const result = await importBagsProjects({ prisma, projects });
+    console.log(`[${LOG_PREFIX}] source resolved`, {
+      source: loaded.source,
+      totalProjects: loaded.projects.length,
+    });
 
-    console.log(`[${LOG_PREFIX}] finished`);
+    step = 'writing imported projects';
+    const result = await importBagsProjects({ prisma, projects: loaded.projects });
+
+    console.log(`[${LOG_PREFIX}] finished`, {
+      source: loaded.source,
+      imported: result.imported,
+      updated: result.updated,
+      rejected: result.rejected,
+    });
 
     return Response.json({
       ok: true,
-      total: result.total,
+      inputMode,
+      source: loaded.source,
+      totalFetched: loaded.projects.length,
+      totalValid: result.valid,
       imported: result.imported,
       updated: result.updated,
       rejected: result.rejected,
       rejectedRowsSample: result.rejectedRows.slice(0, 10),
       rowErrorsSample: result.rowErrors.slice(0, 10),
+      sourceMeta: loaded.meta,
       durationMs: Date.now() - startedAt,
     });
   } catch (error) {
@@ -44,6 +63,8 @@ export async function POST(request: Request) {
       step,
       error: errorMessage,
       stack: errorStack,
+      inputMode,
+      inputFile: INPUT_FILE,
     });
 
     return Response.json(
@@ -54,7 +75,9 @@ export async function POST(request: Request) {
         step,
         failingStep: step,
         failingField: null,
-        total: 0,
+        source: null,
+        totalFetched: 0,
+        totalValid: 0,
         imported: 0,
         updated: 0,
         rejected: 0,

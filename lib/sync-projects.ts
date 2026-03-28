@@ -1,13 +1,21 @@
 import { Prisma } from '@prisma/client';
 
 const REJECTION_SAMPLE_LIMIT = 10;
+const SYNC_CURSOR_KEY = 'bags:sync-projects:cursor:v1';
+const DEFAULT_BATCH_SIZE = 0;
+const MAX_BATCH_SIZE = 500;
 
 type ProjectSyncClient = {
   importedProject: {
+    count: (args?: Prisma.ImportedProjectCountArgs) => Promise<number>;
     findMany: (args: Prisma.ImportedProjectFindManyArgs) => Promise<ImportedProjectRow[]>;
   };
   importedTokenMetrics: {
     findMany: (args: Prisma.ImportedTokenMetricsFindManyArgs) => Promise<ImportedTokenMetricsRow[]>;
+  };
+  importCursor: {
+    upsert: (args: Prisma.ImportCursorUpsertArgs) => Promise<{ cursor: number }>;
+    update: (args: Prisma.ImportCursorUpdateArgs) => Promise<{ id: string }>;
   };
   project: {
     findUnique: (args: Prisma.ProjectFindUniqueArgs) => Promise<{ id: string; slug: string } | null>;
@@ -92,6 +100,12 @@ type ProjectionRow = {
   rawListPayload: Prisma.InputJsonValue;
   rawDetailPayload: Prisma.InputJsonValue;
 };
+
+function normalizeBatchSize(rawValue: string | number | undefined): number {
+  const asNumber = Number(rawValue);
+  if (!Number.isFinite(asNumber) || asNumber <= 0) return DEFAULT_BATCH_SIZE;
+  return Math.min(Math.floor(asNumber), MAX_BATCH_SIZE);
+}
 
 function asRecord(value: Prisma.JsonValue | null | undefined): Record<string, unknown> | null {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -275,8 +289,84 @@ function projectFromImported({
   };
 }
 
-export async function syncProjectsFromImported({ prisma }: { prisma: ProjectSyncClient }) {
-  const importedRows = await prisma.importedProject.findMany({
+async function getImportedRowsBatch({
+  prisma,
+  batchSize,
+}: {
+  prisma: ProjectSyncClient;
+  batchSize: number;
+}) {
+  if (batchSize <= 0) {
+    const allRows = await prisma.importedProject.findMany({
+      select: {
+        id: true,
+        source: true,
+        sourceProjectId: true,
+        sourceUrl: true,
+        name: true,
+        description: true,
+        category: true,
+        iconUrl: true,
+        sourceStatus: true,
+        tokenAddress: true,
+        sourceUserId: true,
+        twitterUrl: true,
+        twitterUserId: true,
+        twitterUsername: true,
+        twitterName: true,
+        twitterProfileImage: true,
+        twitterVerified: true,
+        upvotes: true,
+        downvotes: true,
+        createdAtFromSource: true,
+        sourceCreatedAt: true,
+        rawListPayload: true,
+        rawDetailPayload: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return {
+      rows: allRows,
+      totalRows: allRows.length,
+      cursor: null,
+      nextCursor: null,
+      cursorAdvanced: false,
+      mode: 'full',
+    };
+  }
+
+  const totalRows = await prisma.importedProject.count();
+
+  const persisted = await prisma.importCursor.upsert({
+    where: { key: SYNC_CURSOR_KEY },
+    create: {
+      key: SYNC_CURSOR_KEY,
+      cursor: 0,
+      batchSize,
+      metadata: { totalRows },
+    },
+    update: {
+      batchSize,
+      metadata: { totalRows },
+    },
+    select: { cursor: true },
+  });
+
+  if (totalRows === 0) {
+    return {
+      rows: [],
+      totalRows,
+      cursor: persisted.cursor,
+      nextCursor: 0,
+      cursorAdvanced: true,
+      mode: 'batched',
+    };
+  }
+
+  const startCursor = ((persisted.cursor % totalRows) + totalRows) % totalRows;
+
+  const firstSlice = await prisma.importedProject.findMany({
     select: {
       id: true,
       source: true,
@@ -302,8 +392,75 @@ export async function syncProjectsFromImported({ prisma }: { prisma: ProjectSync
       rawListPayload: true,
       rawDetailPayload: true,
     },
-    orderBy: { createdAt: 'asc' },
+    orderBy: { sourceProjectId: 'asc' },
+    skip: startCursor,
+    take: batchSize,
   });
+
+  let rows = firstSlice;
+
+  if (firstSlice.length < batchSize && totalRows > firstSlice.length) {
+    const remaining = batchSize - firstSlice.length;
+    const wrappedSlice = await prisma.importedProject.findMany({
+      select: {
+        id: true,
+        source: true,
+        sourceProjectId: true,
+        sourceUrl: true,
+        name: true,
+        description: true,
+        category: true,
+        iconUrl: true,
+        sourceStatus: true,
+        tokenAddress: true,
+        sourceUserId: true,
+        twitterUrl: true,
+        twitterUserId: true,
+        twitterUsername: true,
+        twitterName: true,
+        twitterProfileImage: true,
+        twitterVerified: true,
+        upvotes: true,
+        downvotes: true,
+        createdAtFromSource: true,
+        sourceCreatedAt: true,
+        rawListPayload: true,
+        rawDetailPayload: true,
+      },
+      orderBy: { sourceProjectId: 'asc' },
+      take: remaining,
+    });
+
+    rows = firstSlice.concat(wrappedSlice);
+  }
+
+  const nextCursor = (startCursor + rows.length) % totalRows;
+
+  return {
+    rows,
+    totalRows,
+    cursor: startCursor,
+    nextCursor,
+    cursorAdvanced: true,
+    mode: 'batched',
+  };
+}
+
+export async function syncProjectsFromImported({
+  prisma,
+  batchSize = process.env.SYNC_PROJECTS_BATCH_SIZE,
+}: {
+  prisma: ProjectSyncClient;
+  batchSize?: string | number;
+}) {
+  const resolvedBatchSize = normalizeBatchSize(batchSize);
+
+  const importedRowsBatch = await getImportedRowsBatch({
+    prisma,
+    batchSize: resolvedBatchSize,
+  });
+
+  const importedRows = importedRowsBatch.rows;
 
   const tokenMints = Array.from(
     new Set(
@@ -435,11 +592,31 @@ export async function syncProjectsFromImported({ prisma }: { prisma: ProjectSync
     }
   }
 
+  if (importedRowsBatch.mode === 'batched' && importedRowsBatch.nextCursor !== null) {
+    await prisma.importCursor.update({
+      where: { key: SYNC_CURSOR_KEY },
+      data: {
+        cursor: importedRowsBatch.nextCursor,
+        batchSize: resolvedBatchSize,
+        metadata: {
+          totalRows: importedRowsBatch.totalRows,
+          rowsProcessed: importedRows.length,
+        },
+      },
+    });
+  }
+
   return {
     total: importedRows.length,
+    totalRows: importedRowsBatch.totalRows,
     imported,
     updated,
     rejected: rowErrors.length,
     rejectedRowsSample: rowErrors.slice(0, REJECTION_SAMPLE_LIMIT),
+    mode: importedRowsBatch.mode,
+    batchSize: resolvedBatchSize,
+    cursor: importedRowsBatch.cursor,
+    nextCursor: importedRowsBatch.nextCursor,
+    cursorAdvanced: importedRowsBatch.cursorAdvanced,
   };
 }
