@@ -5,10 +5,15 @@ const SYNC_CURSOR_KEY = 'bags:sync-projects:cursor:v1';
 const DEFAULT_BATCH_SIZE = 0;
 const MAX_BATCH_SIZE = 500;
 
+const PRIMARY_RELATION_ROLE = 'primary';
+
 type ProjectSyncClient = {
   importedProject: {
     count: (args?: Prisma.ImportedProjectCountArgs) => Promise<number>;
     findMany: (args: Prisma.ImportedProjectFindManyArgs) => Promise<ImportedProjectRow[]>;
+  };
+  importedProjectUpdate: {
+    findMany: (args: Prisma.ImportedProjectUpdateFindManyArgs) => Promise<ImportedProjectUpdateRow[]>;
   };
   importedTokenMetrics: {
     findMany: (args: Prisma.ImportedTokenMetricsFindManyArgs) => Promise<ImportedTokenMetricsRow[]>;
@@ -16,6 +21,21 @@ type ProjectSyncClient = {
   importCursor: {
     upsert: (args: Prisma.ImportCursorUpsertArgs) => Promise<{ cursor: number }>;
     update: (args: Prisma.ImportCursorUpdateArgs) => Promise<{ id: string }>;
+  };
+  creator: {
+    upsert: (args: Prisma.CreatorUpsertArgs) => Promise<{ id: string }>;
+  };
+  token: {
+    upsert: (args: Prisma.TokenUpsertArgs) => Promise<{ id: string }>;
+  };
+  projectCreator: {
+    upsert: (args: Prisma.ProjectCreatorUpsertArgs) => Promise<{ id: string }>;
+    deleteMany: (args: Prisma.ProjectCreatorDeleteManyArgs) => Promise<{ count: number }>;
+    count: (args?: Prisma.ProjectCreatorCountArgs) => Promise<number>;
+  };
+  projectToken: {
+    upsert: (args: Prisma.ProjectTokenUpsertArgs) => Promise<{ id: string }>;
+    deleteMany: (args: Prisma.ProjectTokenDeleteManyArgs) => Promise<{ count: number }>;
   };
   project: {
     findUnique: (args: Prisma.ProjectFindUniqueArgs) => Promise<{ id: string; slug: string } | null>;
@@ -50,6 +70,12 @@ type ImportedProjectRow = {
   rawDetailPayload: Prisma.JsonValue;
 };
 
+type ImportedProjectUpdateRow = {
+  projectId: string;
+  createdAtFromSource: Date | null;
+  updatedAtFromSource: Date | null;
+};
+
 type ImportedTokenMetricsRow = {
   tokenMint: string;
   lifetimeFeesLamports: string | null;
@@ -58,6 +84,8 @@ type ImportedTokenMetricsRow = {
   claimsUniqueWallets: number | null;
   creatorCount: number | null;
   hasCreator: boolean | null;
+  creatorsDataStatus: string | null;
+  lastFetchedAt: Date | null;
 };
 
 type ProjectionRow = {
@@ -95,10 +123,24 @@ type ProjectionRow = {
   claimsUniqueWallets: number | null;
   creatorCount: number | null;
   hasLaunchCreator: boolean | null;
+  creatorsDataStatus: string | null;
+  hasToken: boolean;
   createdAtFromSource: Date | null;
   sourceCreatedAt: Date | null;
   rawListPayload: Prisma.InputJsonValue;
   rawDetailPayload: Prisma.InputJsonValue;
+};
+
+type CreatorProjection = {
+  identityKey: string;
+  source: string;
+  sourceUserId: string | null;
+  twitterUserId: string | null;
+  twitterUsername: string | null;
+  twitterName: string | null;
+  twitterVerified: boolean | null;
+  twitterFollowersCount: number | null;
+  twitterProfileImage: string | null;
 };
 
 function normalizeBatchSize(rawValue: string | number | undefined): number {
@@ -160,6 +202,12 @@ function slugifyName(name: string): string {
 function stableSuffix(sourceProjectId: string): string {
   const normalized = sourceProjectId.toLowerCase().replace(/[^a-z0-9]/g, '');
   return normalized.length > 0 ? normalized : 'src';
+}
+
+function maxDate(current: Date | null, candidate: Date | null): Date | null {
+  if (!candidate) return current;
+  if (!current) return candidate;
+  return candidate > current ? candidate : current;
 }
 
 async function resolveUniqueSlug({
@@ -247,6 +295,34 @@ function extractTwitterFields(rawDetailPayload: Prisma.JsonValue): Pick<
   };
 }
 
+function buildCreatorProjection(imported: ImportedProjectRow): CreatorProjection | null {
+  const extractedTwitter = extractTwitterFields(imported.rawDetailPayload);
+  const sourceUserId = asString(imported.sourceUserId);
+  const twitterUserId = asString(imported.twitterUserId);
+
+  const identityKey = sourceUserId
+    ? `${imported.source}:user:${sourceUserId}`
+    : twitterUserId
+      ? `${imported.source}:twitter:${twitterUserId}`
+      : null;
+
+  if (!identityKey) {
+    return null;
+  }
+
+  return {
+    identityKey,
+    source: imported.source,
+    sourceUserId,
+    twitterUserId,
+    twitterUsername: asString(imported.twitterUsername),
+    twitterName: asString(imported.twitterName),
+    twitterVerified: asBoolean(imported.twitterVerified),
+    twitterFollowersCount: extractedTwitter.twitterFollowersCount,
+    twitterProfileImage: asString(imported.twitterProfileImage),
+  };
+}
+
 function projectFromImported({
   imported,
   metrics,
@@ -255,6 +331,7 @@ function projectFromImported({
   metrics: ImportedTokenMetricsRow | null;
 }): ProjectionRow {
   const extractedTwitter = extractTwitterFields(imported.rawDetailPayload);
+  const tokenAddress = asString(imported.tokenAddress);
 
   return {
     source: imported.source,
@@ -265,7 +342,7 @@ function projectFromImported({
     category: asString(imported.category),
     iconUrl: asString(imported.iconUrl),
     sourceStatus: asString(imported.sourceStatus),
-    tokenAddress: asString(imported.tokenAddress),
+    tokenAddress,
     sourceUserId: asString(imported.sourceUserId),
     twitterUrl: asString(imported.twitterUrl),
     twitterUserId: asString(imported.twitterUserId),
@@ -282,6 +359,8 @@ function projectFromImported({
     claimsUniqueWallets: metrics?.claimsUniqueWallets ?? null,
     creatorCount: metrics?.creatorCount ?? null,
     hasLaunchCreator: metrics?.hasCreator ?? null,
+    creatorsDataStatus: metrics?.creatorsDataStatus ?? null,
+    hasToken: tokenAddress !== null,
     createdAtFromSource: imported.createdAtFromSource,
     sourceCreatedAt: imported.sourceCreatedAt,
     rawListPayload: toInputJson(imported.rawListPayload),
@@ -332,7 +411,7 @@ async function getImportedRowsBatch({
       cursor: null,
       nextCursor: null,
       cursorAdvanced: false,
-      mode: 'full',
+      mode: 'full' as const,
     };
   }
 
@@ -360,7 +439,7 @@ async function getImportedRowsBatch({
       cursor: persisted.cursor,
       nextCursor: 0,
       cursorAdvanced: true,
-      mode: 'batched',
+      mode: 'batched' as const,
     };
   }
 
@@ -442,7 +521,7 @@ async function getImportedRowsBatch({
     cursor: startCursor,
     nextCursor,
     cursorAdvanced: true,
-    mode: 'batched',
+    mode: 'batched' as const,
   };
 }
 
@@ -487,6 +566,8 @@ export async function syncProjectsFromImported({
             claimsUniqueWallets: true,
             creatorCount: true,
             hasCreator: true,
+            creatorsDataStatus: true,
+            lastFetchedAt: true,
           },
         })
       : [];
@@ -494,6 +575,31 @@ export async function syncProjectsFromImported({
   const tokenMetricsByMint = new Map<string, ImportedTokenMetricsRow>(
     tokenMetricsRows.map((row) => [row.tokenMint, row]),
   );
+
+  const updatesByProjectId = new Map<string, { updatesCount: number; lastUpdateAt: Date | null }>();
+  if (importedRows.length > 0) {
+    const importedProjectIds = importedRows.map((row) => row.id);
+    const updates = await prisma.importedProjectUpdate.findMany({
+      where: {
+        projectId: {
+          in: importedProjectIds,
+        },
+      },
+      select: {
+        projectId: true,
+        createdAtFromSource: true,
+        updatedAtFromSource: true,
+      },
+    });
+
+    for (const update of updates) {
+      const current = updatesByProjectId.get(update.projectId) ?? { updatesCount: 0, lastUpdateAt: null };
+      current.updatesCount += 1;
+      const candidate = maxDate(update.updatedAtFromSource, update.createdAtFromSource);
+      current.lastUpdateAt = maxDate(current.lastUpdateAt, candidate);
+      updatesByProjectId.set(update.projectId, current);
+    }
+  }
 
   let imported = 0;
   let updated = 0;
@@ -524,64 +630,222 @@ export async function syncProjectsFromImported({
         existingProjectId: existing?.id ?? null,
       });
 
-      if (existing) {
-        await prisma.project.update({
-          where: {
-            source_sourceProjectId: {
+      const baseUpdateData = {
+        slug,
+        sourceUrl: projection.sourceUrl,
+        name: projection.name,
+        description: projection.description,
+        category: projection.category,
+        iconUrl: projection.iconUrl,
+        sourceStatus: projection.sourceStatus,
+        tokenAddress: projection.tokenAddress,
+        sourceUserId: projection.sourceUserId,
+        twitterUrl: projection.twitterUrl,
+        twitterUserId: projection.twitterUserId,
+        twitterUsername: projection.twitterUsername,
+        twitterName: projection.twitterName,
+        twitterProfileImage: projection.twitterProfileImage,
+        twitterVerified: projection.twitterVerified,
+        twitterDescription: projection.twitterDescription,
+        twitterCreatedAt: projection.twitterCreatedAt,
+        twitterVerifiedType: projection.twitterVerifiedType,
+        twitterUserUrl: projection.twitterUserUrl,
+        twitterFollowersCount: projection.twitterFollowersCount,
+        twitterFollowingCount: projection.twitterFollowingCount,
+        twitterTweetCount: projection.twitterTweetCount,
+        twitterListedCount: projection.twitterListedCount,
+        twitterLikeCount: projection.twitterLikeCount,
+        twitterMediaCount: projection.twitterMediaCount,
+        upvotes: projection.upvotes,
+        downvotes: projection.downvotes,
+        lifetimeFeesLamports: projection.lifetimeFeesLamports,
+        claimsTotalLamports: projection.claimsTotalLamports,
+        claimsCreatorLamports: projection.claimsCreatorLamports,
+        claimsUniqueWallets: projection.claimsUniqueWallets,
+        creatorCount: projection.creatorCount,
+        hasLaunchCreator: projection.hasLaunchCreator,
+        creatorsDataStatus: projection.creatorsDataStatus,
+        hasToken: projection.hasToken,
+        createdAtFromSource: projection.createdAtFromSource,
+        sourceCreatedAt: projection.sourceCreatedAt,
+        rawListPayload: projection.rawListPayload,
+        rawDetailPayload: projection.rawDetailPayload,
+      };
+
+      const projectRow = existing
+        ? await prisma.project.update({
+            where: {
+              source_sourceProjectId: {
+                source: projection.source,
+                sourceProjectId: projection.sourceProjectId,
+              },
+            },
+            data: baseUpdateData,
+          })
+        : await prisma.project.create({
+            data: {
+              ...baseUpdateData,
               source: projection.source,
               sourceProjectId: projection.sourceProjectId,
             },
-          },
-          data: {
-            slug,
-            sourceUrl: projection.sourceUrl,
-            name: projection.name,
-            description: projection.description,
-            category: projection.category,
-            iconUrl: projection.iconUrl,
-            sourceStatus: projection.sourceStatus,
-            tokenAddress: projection.tokenAddress,
-            sourceUserId: projection.sourceUserId,
-            twitterUrl: projection.twitterUrl,
-            twitterUserId: projection.twitterUserId,
-            twitterUsername: projection.twitterUsername,
-            twitterName: projection.twitterName,
-            twitterProfileImage: projection.twitterProfileImage,
-            twitterVerified: projection.twitterVerified,
-            twitterDescription: projection.twitterDescription,
-            twitterCreatedAt: projection.twitterCreatedAt,
-            twitterVerifiedType: projection.twitterVerifiedType,
-            twitterUserUrl: projection.twitterUserUrl,
-            twitterFollowersCount: projection.twitterFollowersCount,
-            twitterFollowingCount: projection.twitterFollowingCount,
-            twitterTweetCount: projection.twitterTweetCount,
-            twitterListedCount: projection.twitterListedCount,
-            twitterLikeCount: projection.twitterLikeCount,
-            twitterMediaCount: projection.twitterMediaCount,
-            upvotes: projection.upvotes,
-            downvotes: projection.downvotes,
-            lifetimeFeesLamports: projection.lifetimeFeesLamports,
-            claimsTotalLamports: projection.claimsTotalLamports,
-            claimsCreatorLamports: projection.claimsCreatorLamports,
-            claimsUniqueWallets: projection.claimsUniqueWallets,
-            creatorCount: projection.creatorCount,
-            hasLaunchCreator: projection.hasLaunchCreator,
-            createdAtFromSource: projection.createdAtFromSource,
-            sourceCreatedAt: projection.sourceCreatedAt,
-            rawListPayload: projection.rawListPayload,
-            rawDetailPayload: projection.rawDetailPayload,
-          },
-        });
+          });
+
+      if (existing) {
         updated += 1;
       } else {
-        await prisma.project.create({
-          data: {
-            slug,
-            ...projection,
-          },
-        });
         imported += 1;
       }
+
+      const creatorProjection = buildCreatorProjection(row);
+      let linkedCreatorId: string | null = null;
+
+      if (creatorProjection) {
+        const creator = await prisma.creator.upsert({
+          where: {
+            identityKey: creatorProjection.identityKey,
+          },
+          create: creatorProjection,
+          update: {
+            sourceUserId: creatorProjection.sourceUserId,
+            twitterUserId: creatorProjection.twitterUserId,
+            twitterUsername: creatorProjection.twitterUsername,
+            twitterName: creatorProjection.twitterName,
+            twitterVerified: creatorProjection.twitterVerified,
+            twitterFollowersCount: creatorProjection.twitterFollowersCount,
+            twitterProfileImage: creatorProjection.twitterProfileImage,
+          },
+        });
+
+        linkedCreatorId = creator.id;
+
+        await prisma.projectCreator.upsert({
+          where: {
+            projectId_creatorId_role: {
+              projectId: projectRow.id,
+              creatorId: creator.id,
+              role: PRIMARY_RELATION_ROLE,
+            },
+          },
+          create: {
+            projectId: projectRow.id,
+            creatorId: creator.id,
+            role: PRIMARY_RELATION_ROLE,
+            matchSource: creatorProjection.sourceUserId ? 'sourceUserId' : 'twitterUserId',
+            confidence: creatorProjection.sourceUserId ? 1 : 0.8,
+          },
+          update: {
+            matchSource: creatorProjection.sourceUserId ? 'sourceUserId' : 'twitterUserId',
+            confidence: creatorProjection.sourceUserId ? 1 : 0.8,
+          },
+        });
+      }
+
+      if (!linkedCreatorId) {
+        await prisma.projectCreator.deleteMany({
+          where: {
+            projectId: projectRow.id,
+            role: PRIMARY_RELATION_ROLE,
+          },
+        });
+      }
+
+      let linkedTokenId: string | null = null;
+
+      if (tokenMint) {
+        const tokenMetrics = tokenMetricsByMint.get(tokenMint) ?? null;
+        const token = await prisma.token.upsert({
+          where: {
+            source_mint: {
+              source: projection.source,
+              mint: tokenMint,
+            },
+          },
+          create: {
+            source: projection.source,
+            mint: tokenMint,
+            lifetimeFeesLamports: tokenMetrics?.lifetimeFeesLamports ?? null,
+            claimsTotalLamports: tokenMetrics?.claimsTotalLamports ?? null,
+            claimsCreatorLamports: tokenMetrics?.claimsCreatorLamports ?? null,
+            claimsUniqueWallets: tokenMetrics?.claimsUniqueWallets ?? null,
+            creatorCount: tokenMetrics?.creatorCount ?? null,
+            hasCreator: tokenMetrics?.hasCreator ?? null,
+            creatorsDataStatus: tokenMetrics?.creatorsDataStatus ?? null,
+            lastFetchedAt: tokenMetrics?.lastFetchedAt ?? null,
+          },
+          update: {
+            lifetimeFeesLamports: tokenMetrics?.lifetimeFeesLamports ?? null,
+            claimsTotalLamports: tokenMetrics?.claimsTotalLamports ?? null,
+            claimsCreatorLamports: tokenMetrics?.claimsCreatorLamports ?? null,
+            claimsUniqueWallets: tokenMetrics?.claimsUniqueWallets ?? null,
+            creatorCount: tokenMetrics?.creatorCount ?? null,
+            hasCreator: tokenMetrics?.hasCreator ?? null,
+            creatorsDataStatus: tokenMetrics?.creatorsDataStatus ?? null,
+            lastFetchedAt: tokenMetrics?.lastFetchedAt ?? null,
+          },
+        });
+
+        linkedTokenId = token.id;
+
+        await prisma.projectToken.upsert({
+          where: {
+            projectId_tokenId_role: {
+              projectId: projectRow.id,
+              tokenId: token.id,
+              role: PRIMARY_RELATION_ROLE,
+            },
+          },
+          create: {
+            projectId: projectRow.id,
+            tokenId: token.id,
+            role: PRIMARY_RELATION_ROLE,
+          },
+          update: {},
+        });
+      }
+
+      if (!linkedTokenId) {
+        await prisma.projectToken.deleteMany({
+          where: {
+            projectId: projectRow.id,
+            role: PRIMARY_RELATION_ROLE,
+          },
+        });
+      }
+
+      const creatorProjectsCount = linkedCreatorId
+        ? await prisma.projectCreator.count({
+            where: {
+              creatorId: linkedCreatorId,
+            },
+          })
+        : 0;
+
+      const creatorTokenProjectsCount = linkedCreatorId
+        ? await prisma.projectCreator.count({
+            where: {
+              creatorId: linkedCreatorId,
+              project: {
+                projectTokens: {
+                  some: {},
+                },
+              },
+            },
+          })
+        : 0;
+
+      const updatesAggregate = updatesByProjectId.get(row.id) ?? { updatesCount: 0, lastUpdateAt: null };
+
+      await prisma.project.update({
+        where: { id: projectRow.id },
+        data: {
+          hasLinkedCreator: linkedCreatorId !== null,
+          creatorProjectsCount,
+          creatorTokenProjectsCount,
+          updatesCount: updatesAggregate.updatesCount,
+          lastUpdateAt: updatesAggregate.lastUpdateAt,
+          hasToken: linkedTokenId !== null,
+        },
+      });
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'Unknown error';
       rowErrors.push({

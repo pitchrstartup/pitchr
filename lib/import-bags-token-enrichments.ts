@@ -397,6 +397,7 @@ export async function importBagsTokenEnrichments({
         claimsUniqueWallets: true,
         creatorCount: true,
         hasCreator: true,
+        creatorsDataStatus: true,
         creatorWallets: true,
         rawLifetimeFeesPayload: true,
         rawClaimStatsPayload: true,
@@ -410,6 +411,7 @@ export async function importBagsTokenEnrichments({
     let claimStatsPayload: any = null;
     let launchCreatorsPayload: any = null;
     let launchCreatorsNoData = false;
+    let launchCreatorsHardFailed = false;
 
     try {
       lifetimeFeesPayload = await fetchBagsEndpoint({ endpoint: ENDPOINTS.lifetimeFees, tokenMint, apiKey });
@@ -429,6 +431,7 @@ export async function importBagsTokenEnrichments({
       if (error instanceof BagsHttpError && error.status === 404) {
         launchCreatorsNoData = true;
       } else {
+        launchCreatorsHardFailed = true;
         errors.push(`launchCreators:${error instanceof Error ? error.message : 'unknown'}`);
       }
     }
@@ -458,17 +461,19 @@ export async function importBagsTokenEnrichments({
 
     const launchCreators = launchCreatorsPayload
       ? normalizeLaunchCreators(launchCreatorsPayload?.response)
+      : {
+          creatorWallets: (existing?.creatorWallets as Prisma.JsonValue) ?? [],
+          creatorCount: existing?.creatorCount ?? null,
+          hasCreator: existing?.hasCreator ?? null,
+        };
+
+    const creatorsDataStatus = launchCreatorsPayload
+      ? 'fetched'
       : launchCreatorsNoData
-        ? {
-            creatorWallets: [],
-            creatorCount: 0,
-            hasCreator: false,
-          }
-        : {
-            creatorWallets: (existing?.creatorWallets as Prisma.JsonValue) ?? [],
-            creatorCount: existing?.creatorCount ?? null,
-            hasCreator: existing?.hasCreator ?? null,
-          };
+        ? 'no_data'
+        : launchCreatorsHardFailed
+          ? 'error'
+          : existing?.creatorsDataStatus ?? null;
 
     try {
       await prisma.importedTokenMetrics.upsert({
@@ -487,6 +492,7 @@ export async function importBagsTokenEnrichments({
           claimsUniqueWallets: claimStats.claimsUniqueWallets,
           creatorCount: launchCreators.creatorCount,
           hasCreator: launchCreators.hasCreator,
+          creatorsDataStatus,
           creatorWallets: launchCreators.creatorWallets,
           rawLifetimeFeesPayload: lifetimeFeesPayload ?? {},
           rawClaimStatsPayload: claimStatsPayload ?? {},
@@ -500,6 +506,7 @@ export async function importBagsTokenEnrichments({
           claimsUniqueWallets: claimStats.claimsUniqueWallets,
           creatorCount: launchCreators.creatorCount,
           hasCreator: launchCreators.hasCreator,
+          creatorsDataStatus,
           creatorWallets: launchCreators.creatorWallets,
           rawLifetimeFeesPayload: lifetimeFeesPayload ?? existing?.rawLifetimeFeesPayload ?? {},
           rawClaimStatsPayload: claimStatsPayload ?? existing?.rawClaimStatsPayload ?? {},
