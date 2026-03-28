@@ -161,3 +161,107 @@ Ne pas assimiler 404 à hasCreator=false.
 2. Les champs creator (wallet, twitterUsername, royaltyBps...) sont perdus aux APIs 5 et 6
 3. Les updates (API 3) ne remontent pas dans Project → pas de signal d'activité en UI
 4. Un 404 sur l'API 6 creators est traité comme "pas de creator" → signal faussé
+
+---
+
+### API 7 — Token Claim Events
+
+GET https://public-api-v2.bags.fm/api/v1/fee-share/token/claim-events?tokenMint={MINT}
+
+Requiert header `x-api-key`.
+Non utilisée aujourd'hui dans le pipeline.
+
+Deux modes de pagination :
+- `mode=offset` (défaut) : paramètres `limit` (max 100) et `offset`
+- `mode=time` : paramètres `from` et `to` (unix timestamps)
+
+Retourne un tableau d'événements. Un objet par claim :
+
+| Champ | Type | Description |
+|---|---|---|
+| wallet | string (base58) | Wallet qui a effectué le claim |
+| isCreator | boolean | Ce wallet est-il le creator du token |
+| amount | string (lamports) | Montant claimé |
+| signature | string | Signature de la transaction Solana |
+| timestamp | string | Horodatage de l'événement |
+
+---
+
+### API 8 — Fee Share Wallet par handle social
+
+GET https://public-api-v2.bags.fm/api/v1/token-launch/fee-share/wallet/v2?provider=twitter&username={HANDLE}
+
+Requiert header `x-api-key`.
+Non utilisée aujourd'hui dans le pipeline.
+
+Paramètres :
+- `provider` : twitter, github, instagram, tiktok, apple, google, email, solana, kick, onlyfans, moltbook
+- `username` : handle sur cette plateforme
+
+| Champ | Type | Description |
+|---|---|---|
+| provider | string | Plateforme sociale |
+| platformData.id | string | ID sur la plateforme |
+| platformData.username | string | Handle |
+| platformData.display_name | string | Nom affiché |
+| platformData.avatar_url | string (url) | Avatar |
+| wallet | string (base58) | Wallet Bags associé |
+
+---
+
+### API 9 — Token Launch Feed
+
+GET https://public-api-v2.bags.fm/api/v1/token-launch/feed
+
+Requiert header `x-api-key`.
+Non utilisée aujourd'hui. Feed général Bags — pas spécifique hackathon.
+
+| Champ | Type |
+|---|---|
+| name | string |
+| symbol | string |
+| description | string |
+| image | string (url) |
+| tokenMint | string (base58) |
+| status | string ("PRE_LAUNCH"...) |
+| twitter | string |
+| website | string |
+| launchSignature | string |
+| accountKeys | string[] |
+| numRequiredSigners | int |
+| uri | string |
+| dbcPoolKey | string |
+| dbcConfigKey | string |
+
+---
+
+### API 10 — Bags Pool par Token Mint
+
+GET https://public-api-v2.bags.fm/api/v1/solana/bags/pools/token-mint?tokenMint={MINT}
+
+Requiert header `x-api-key`.
+Non utilisée aujourd'hui.
+
+| Champ | Type |
+|---|---|
+| tokenMint | string (base58) |
+| dbcConfigKey | string |
+| dbcPoolKey | string |
+| dammV2PoolKey | string |
+
+---
+
+## Récapitulatif — toutes les APIs
+
+| # | API | URL | Utilisée | Ce qu'on perd |
+|---|---|---|---|---|
+| 1 | Hackathon list | api2.bags.fm/api/v1/hackathon/list | ✅ | projets avec twitterUser=null rejetés |
+| 2 | Hackathon detail | api2.bags.fm/api/v1/hackathon/{uuid} | ✅ | rien de critique |
+| 3 | Hackathon updates | api2.bags.fm/api/v1/hackathon/{uuid}/updates | ✅ | non projetées dans Project |
+| 4 | Token lifetime fees | /token-launch/lifetime-fees | ✅ | string brute non convertie |
+| 5 | Token claim stats | /token-launch/claim-stats | ⚠️ | wallet + totalClaimed par claimer perdus |
+| 6 | Token creators | /token-launch/creator/v3 | ⚠️ | providerUsername, royaltyBps, pfp perdus |
+| 7 | Token claim events | /fee-share/token/claim-events | 🔲 | signal de traction temporelle absent |
+| 8 | Fee share wallet | /token-launch/fee-share/wallet/v2 | 🔲 | résolution Twitter → wallet absente |
+| 9 | Token launch feed | /token-launch/feed | 🔲 | non pertinent MVP |
+| 10 | Bags pool by mint | /solana/bags/pools/token-mint | 🔲 | non pertinent MVP |
