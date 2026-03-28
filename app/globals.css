@@ -6,31 +6,29 @@
   box-sizing: border-box;
 }
 
+html,
 body {
-  background-color: #0a0a0f;
-  color: #f0f0f8;
-  min-height: 100vh;
+  min-height: 100%;
 }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: #13131a;
-}
-::-webkit-scrollbar-thumb {
-  background: #2a2a38;
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #3a3a50;
+body {
+  margin: 0;
+  background-color: #f9fafb;
+  color: #1a1a1a;
 }
 
-/* Card drag cursor */
-.drag-card {
-  cursor: grab;
+a {
+  color: inherit;
+  text-decoration: none;
 }
-.drag-card:active {
-  cursor: grabbing;
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
 }
