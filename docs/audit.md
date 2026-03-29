@@ -364,3 +364,171 @@ Aucun mécanisme d'alerte sur les taux d'échec. Les counters `rejected`, `faile
 
 - `ProjectDetail` dans `lib/project-dto.ts` est le type TypeScript retourné mais il ne correspond pas au select Prisma : des champs comme `twitterFollowersCount` sont dans le select mais absents du type DTO, et inversement. Le type est sous-spécifié.
 - Aucune gestion du cas où `slug` contient des caractères dangereux — non bloquant car Prisma paramètre les requêtes, mais non validé en amont.
+
+---
+
+## 5. Bugs identifiés
+
+### Bug #1 — Endpoint creators incorrect (CRITIQUE)
+**Fichier :** `lib/import-bags-token-enrichments.ts` ligne 16
+**Code :** `launchCreators: '/token-launch/creators'`
+**Problème :** L'URL réelle de l'API est `/token-launch/creator/v3`. L'endpoint `/token-launch/creators` n'existe pas. Chaque requête retourne probablement un 404, traité comme `no_data`.
+**Impact :** `hasCreator`, `creatorCount` et `creatorWallets` sont null/vides sur tous les tokens depuis le début. `creatorsDataStatus` est `'no_data'` partout. Signal "creator présent" absent de toute l'UI. `hasLaunchCreator` est null sur tous les `Project` avec token.
+
+---
+
+### Bug #2 — Rejet des projets sans description (CRITIQUE)
+**Fichier :** `lib/import-bags.js` ligne 163
+**Code :** `if (!description) missing.push('description');`
+**Problème :** `description` est traitée comme champ obligatoire. L'API Bags retourne des projets avec description vide ou absente (`parfois vide` selon api-reference.md). Les seuls champs réellement obligatoires sont `uuid`, `name`, `icon`, `category`.
+**Impact :** Un sous-ensemble de projets valides est systématiquement rejeté à l'import. Ces projets ne sont jamais dans `ImportedProject` ni dans `Project`. L'UI ne les voit pas.
+
+---
+
+### Bug #3 — Rejet des projets sans twitterUrl (CRITIQUE)
+**Fichier :** `lib/import-bags.js` ligne 164
+**Code :** `if (!twitterUrl) missing.push('twitterUrl');`
+**Problème :** `twitterUrl` est traitée comme champ obligatoire. Elle n'est pas dans la liste des champs obligatoires de l'api-reference. Des projets sans compte Twitter associé sont valides côté Bags.
+**Impact :** Tout projet sans twitterUrl est rejeté à l'import, même si uuid, name, icon et category sont présents. Amplifie le taux de rejet réel au-delà des ~20% liés au twitterUser null.
+
+---
+
+### Bug #4 — Agrégation des claim stats sur le mauvais champ (CRITIQUE)
+**Fichier :** `lib/import-bags-token-enrichments.ts` ligne 313
+**Code :** `total = addLamports(total, event?.amount);`
+**Problème :** Le champ de montant dans l'API 5 (claim-stats) est `totalClaimed`, pas `amount`. Le champ `amount` est absent de la réponse API documentée.
+**Impact :** `claimsTotalLamports` et `claimsCreatorLamports` sont toujours `"0"` dans `ImportedTokenMetrics`, `Token` et `Project`. Le signal économique "fees totales claimées" est inutilisable.
+
+---
+
+### Bug #5 — Appel curl subprocess dans import-bags-updates (IMPORTANT)
+**Fichier :** `lib/import-bags-updates.js` ligne 203
+**Code :** `await execFileAsync('curl', ['-4', '-sS', '-m', '30', url], { maxBuffer: 1024 * 1024 * 8 })`
+**Problème :** Le job utilise `child_process.execFile` pour appeler le binaire système `curl` au lieu de `fetch` natif. Dépendance non déclarée au binaire `curl` dans l'environnement d'exécution. En cas de réponse volumineuse, le buffer est limité à 8 Mo (peut silencieusement tronquer ou crasher). Le parsing JSON est sur `stdout` brut, sans gestion du code HTTP de retour.
+**Impact :** Si `curl` est absent ou si le stdout dépasse 8 Mo, le job plante silencieusement sur le projet concerné. Les erreurs HTTP non-2xx (ex. 429 rate limit) ne sont pas détectées — `JSON.parse` sur une réponse d'erreur HTML lèverait une exception non structurée.
+
+---
+
+### Bug #6 — ImportedProject.lastSyncedAt jamais peuplé (MOYEN)
+**Fichier :** `lib/import-bags.js` — absent des blocs `create` (ligne 351) et `update` (ligne 318–347)
+**Problème :** Le champ `lastSyncedAt` existe dans le schéma Prisma mais n'est jamais écrit par le job d'import.
+**Impact :** Impossible de savoir quand un projet a été synchronisé pour la dernière fois. Rend un éventuel job de "détection de projets non re-synchés depuis X jours" impossible à implémenter.
+
+---
+
+### Bug #7 — ImportedProject.sourceCreatedAt jamais peuplé (MOYEN)
+**Fichier :** `lib/import-bags.js` — absent des blocs `create` et `update`
+**Problème :** `sourceCreatedAt` n'est jamais passé dans les données d'écriture. `createdAtFromSource` est peuplé, mais `sourceCreatedAt` reste toujours null dans `ImportedProject` et par propagation dans `Project`.
+**Impact :** `Project.sourceCreatedAt` est null pour tous les projets. Si un consumer fait la distinction entre les deux timestamps source, il ne voit que des nulls.
+
+---
+
+### Bug #8 — Filtre hasToken sur tokenAddress au lieu du champ dédié (MINEUR)
+**Fichier :** `app/api/projects/route.ts` ligne 32–33
+**Code :** `hasToken ? { tokenAddress: { not: null } } : { tokenAddress: null }`
+**Problème :** Le filtre `hasToken` utilise `tokenAddress IS NOT NULL` alors que le champ booléen `Project.hasToken` a été ajouté précisément pour cet usage. Légère incohérence de surface mais pas de bug fonctionnel si les deux restent synchronisés.
+**Impact :** Si `hasToken` et `tokenAddress` divergent un jour (ex. token révoqué), le filtre retourne le mauvais ensemble.
+
+---
+
+### Bug #9 — ProjectDetail DTO incomplet vs select Prisma (MINEUR)
+**Fichier :** `lib/project-dto.ts` / `app/api/projects/[slug]/route.ts`
+**Problème :** Le type `ProjectDetail` ne déclare pas `twitterFollowersCount` ni `twitterFollowingCount`, alors que le select Prisma les inclut (lignes 29–30). Inversement, plusieurs champs projetés par sync-projects ne sont ni dans le select ni dans le DTO (voir section 4).
+**Impact :** Les consumers TypeScript de `ProjectDetail` ne peuvent pas utiliser `twitterFollowersCount` sans cast. Les champs manquants du select sont invisibles côté client même s'ils existent en DB.
+
+---
+
+### Bug #10 — Double update Project dans sync-projects (COSMÉTIQUE)
+**Fichier :** `lib/sync-projects.ts` lignes 676 et 838
+**Problème :** Chaque projet fait l'objet de deux `prisma.project.update` successifs : le premier écrit les données de base, le second écrase certains champs (`hasToken`, `hasLinkedCreator`, `updatesCount`, etc.). Deux round-trips DB par projet au lieu d'un.
+**Impact :** Pas d'impact fonctionnel si les valeurs sont cohérentes. Doublement du coût d'écriture sur le full sync.
+
+---
+
+## 6. Données manquantes
+
+Comparaison entre ce que les APIs Bags retournent (selon `docs/api-reference.md`) et ce que le pipeline capture effectivement.
+
+### API 1 — Liste des projets
+
+| Champ API | Capturé ? | Remarque |
+|---|---|---|
+| `twitterUser.url` | NON | Présent dans `rawDetailPayload` mais non extrait. C'est l'URL du site web du projet — potentiellement la donnée la plus utile pour un lien externe. `Project.twitterUserUrl` est extrait par sync-projects depuis le raw mais pointe vers l'URL Twitter de l'*utilisateur*, pas vers le site du projet. |
+| `twitterUser.entities` | Raw seulement | Contient les URLs expandées. Non exploité. |
+
+Tous les autres champs documentés de l'API 1 sont capturés.
+
+---
+
+### API 2 — Détail d'un projet
+
+| Champ API | Capturé ? | Remarque |
+|---|---|---|
+| `createdAt` | OUI → `createdAtFromSource` | Correctement capturé. |
+
+Rien de manquant sur l'API 2.
+
+---
+
+### API 3 — Updates d'un projet
+
+| Champ API | Capturé ? | Remarque |
+|---|---|---|
+| `_id` → `sourceUpdateId` | OUI | |
+| `hackathonUuid` → `sourceProjectUuid` | OUI | |
+| `userId` → `sourceUserId` | OUI | |
+| `text` → `contentText` | OUI | |
+| `createdAt`, `updatedAt` | OUI | |
+
+Les updates sont stockées dans `ImportedProjectUpdate` et **projetées** dans `Project` via `updatesCount` et `lastUpdateAt`. Rien de perdu sur l'API 3.
+
+---
+
+### API 4 — Lifetime fees
+
+| Champ API | Capturé ? | Remarque |
+|---|---|---|
+| `response` (lamports) | OUI → `lifetimeFeesLamports` | Stocké comme string brute, jamais converti en nombre. |
+
+---
+
+### API 5 — Claim stats
+
+| Champ API | Capturé ? | Remarque |
+|---|---|---|
+| `wallet` | NON | L'identité de chaque claimer est perdue. Impossible de savoir quels wallets ont claimé. |
+| `totalClaimed` | NON (bug #4) | Champ présent dans l'API mais le code lit `amount` → agrégat toujours 0. |
+| `royaltyBps` | NON | Royalty par claimer perdue. |
+| `isCreator` | Agrégé seulement → `hasCreator` | L'information par claimer est perdue, seul le booléen global est conservé. |
+| `twitterUsername` | NON | |
+| `providerUsername` | NON | |
+| `bagsUsername` | NON | |
+| `isAdmin` | NON | |
+
+---
+
+### API 6 — Creators
+
+| Champ API | Capturé ? | Remarque |
+|---|---|---|
+| `wallet` | Partiel → `creatorWallets[]` (max 30) | Mais bug #1 : endpoint appelé sur la mauvaise URL → en pratique jamais peuplé. |
+| `isCreator` | Agrégé → `hasCreator` | |
+| `twitterUsername` | NON | Permettrait de lier creator → profil Twitter sans passer par twitterUser. |
+| `providerUsername` | NON | |
+| `bagsUsername` | NON | |
+| `pfp` | NON | Avatar du creator perdu. |
+| `royaltyBps` | NON | Part des fees du creator perdue. |
+| `provider` | NON | Impossible de savoir si creator est lié via Twitter, GitHub, etc. |
+| `isAdmin` | NON | |
+| `username` | NON | |
+
+---
+
+### APIs 7 à 10 — Non utilisées
+
+| API | Données absentes du pipeline |
+|---|---|
+| API 7 — Token claim events | Historique temporel des claims (wallet, montant, timestamp, signature). Signal de traction dans le temps inexistant. |
+| API 8 — Fee share wallet | Résolution handle social → wallet Bags. Permettrait de lier un creator Twitter à son wallet sans passer par l'API 6. |
+| API 9 — Token launch feed | Feed général Bags. Non pertinent pour le scope hackathon. |
+| API 10 — Bags pool by mint | Clés de pool DBC/DAMM. Non pertinent pour le scope hackathon. |
