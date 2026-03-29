@@ -261,3 +261,106 @@ Champs : `key` (unique), `cursor` (int offset), `batchSize`, `metadata` (JSON), 
 - **Bug #7** : En mode full (défaut, `batchSize=0`), chaque exécution recharge et reprojecte **tous** les projets. Coûteux sur un grand catalogue. Pas de notion de "projets modifiés depuis la dernière sync".
 - Deux `project.update` consécutifs par projet (ligne 676 + ligne 838) : le second écrase `hasToken` mis dans `baseUpdateData`. En pratique non bloquant car la valeur est cohérente, mais inefficace.
 - `resolveUniqueSlug` fait jusqu'à 1000 requêtes DB pour trouver un slug libre — pas de risque fonctionnel mais potentiellement lent sur un catalogue dense de projets au nom identique.
+
+---
+
+## 3. Crons — état actuel
+
+### Routes cron existantes
+
+| Route | Méthode | Lib appelée |
+|---|---|---|
+| `/api/import-bags` | POST | `lib/import-bags.js` |
+| `/api/import-bags-updates` | POST | `lib/import-bags-updates.js` |
+| `/api/import-bags-token-enrichments` | POST | `lib/import-bags-token-enrichments.ts` |
+| `/api/sync-projects` | POST | `lib/sync-projects.ts` |
+
+### Déclenchement
+
+Toutes les routes sont protégées par `requireCronBearerAuth` (`lib/cron-auth.ts`) : header `Authorization: Bearer <CRON_SECRET>` obligatoire, sinon 401.
+
+Le déclencheur est **cron-job.org** (scheduler externe). Confirmé par `docs/architecture.md` : "No Vercel Cron assumption: cron-job.org remains the external scheduler for all cron routes." Aucun fichier `vercel.json`, `next.config.js` ni configuration Vercel Cron n'existe dans le repo.
+
+### Fréquence configurée
+
+**Aucune fréquence n'est définie dans le code.** Ni dans le repo ni dans les fichiers de config. La fréquence dépend entièrement de la configuration manuelle sur cron-job.org, non versionée.
+
+Variables d'environnement qui influencent le volume traité par run :
+- `BAGS_UPDATES_BATCH_SIZE` (défaut : 50 projets par run)
+- `BAGS_TOKEN_ENRICHMENTS_BATCH_SIZE` (défaut : 30 projets par run)
+- `SYNC_PROJECTS_BATCH_SIZE` (défaut : 0 = full sync)
+- `BAGS_PROJECTS_INPUT_MODE` (défaut : `auto`)
+
+### Ce qui manque
+
+**Déclenchement automatique de nouveaux projets :**
+`import-bags` recharge l'intégralité du catalogue à chaque run. Il n'y a pas de logique de détection de nouveaux projets depuis la dernière exécution — ni cursor, ni `since` timestamp, ni comparaison d'IDs. Un nouveau projet hackathon posté sur Bags sera importé seulement au prochain run complet de `import-bags`.
+
+**Mise à jour des votes et du status :**
+`import-bags` met bien à jour `upvotes`, `downvotes` et `sourceStatus` à chaque run puisqu'il reprend tout le catalogue. Mais il n'y a pas de job dédié à la mise à jour légère de ces champs (sans refaire tous les appels détail).
+
+**Chaînage automatique des jobs :**
+Les 4 jobs sont indépendants et doivent être déclenchés dans l'ordre sur cron-job.org :
+1. `import-bags` → 2. `import-bags-updates` → 3. `import-bags-token-enrichments` → 4. `sync-projects`
+
+Il n'y a aucun mécanisme dans le code pour enchaîner automatiquement les étapes ni pour détecter qu'une étape précédente s'est bien terminée avant de lancer la suivante.
+
+**Alerting / monitoring :**
+Aucun mécanisme d'alerte sur les taux d'échec. Les counters `rejected`, `failed`, `partialFailures` sont loggés mais non monitorés.
+
+---
+
+## 4. API read — état actuel
+
+### GET /api/projects
+
+**Fichier :** `app/api/projects/route.ts`
+
+**Filtres disponibles :**
+
+| Paramètre | Type | Champ DB filtré | Notes |
+|---|---|---|---|
+| `category` | string | `Project.category` | exact match, case-sensitive |
+| `hasCreator` | boolean | `Project.hasLaunchCreator` | naming inconsistant : paramètre `hasCreator`, champ `hasLaunchCreator` |
+| `twitterVerified` | boolean | `Project.twitterVerified` | |
+| `hasToken` | boolean | `Project.tokenAddress` | filtre sur `tokenAddress IS NOT NULL` au lieu du champ dédié `hasToken` |
+| `recentOnly` | boolean | `Project.createdAtFromSource >= now - 14j` | fenêtre de 14 jours hardcodée |
+| `limit` | int | — | min 1, max 120, défaut 40 |
+
+**Champs retournés (`ProjectListItem`) :**
+
+`slug`, `name`, `description`, `category`, `iconUrl`, `twitterUsername`, `twitterVerified`, `hasLaunchCreator`, `tokenAddress`, `claimsUniqueWallets`, `creatorCount`, `createdAtFromSource`
+
+**Ce qui manque ou est incorrect :**
+
+- **Pas de pagination** : uniquement un `limit` dur. Impossible de parcourir le catalogue au-delà des 120 premiers résultats. Pas de cursor, pas d'offset.
+- **Pas de tri configurable** : ordre hardcodé `createdAtFromSource DESC, createdAt DESC`. Pas de tri par votes, par fees, par followers.
+- **`hasToken` filtre sur `tokenAddress`** au lieu du champ booléen `Project.hasToken` pourtant dédié à cet usage.
+- **Champs absents de la réponse** : `upvotes`, `downvotes`, `twitterName`, `twitterProfileImage`, `hasToken` (boolean), `hasLinkedCreator`, `lifetimeFeesLamports`, `updatesCount`, `lastUpdateAt`, `sourceStatus`.
+- **Pas de filtre sur `updatesCount`**, `upvotes`, `lifetimeFeesLamports` — signaux produit calculés mais non exposés comme critères de tri/filtre.
+
+---
+
+### GET /api/projects/[slug]
+
+**Fichier :** `app/api/projects/[slug]/route.ts`
+
+**Champs retournés (`ProjectDetail`) :**
+
+`slug`, `name`, `description`, `category`, `iconUrl`, `sourceUrl`, `twitterUrl`, `twitterUsername`, `twitterVerified`, `hasLaunchCreator`, `tokenAddress`, `claimsUniqueWallets`, `creatorCount`, `twitterFollowersCount`, `twitterFollowingCount`, `createdAtFromSource`
+
+**Ce qui manque :**
+
+- `upvotes`, `downvotes`
+- `twitterName`, `twitterProfileImage`, `twitterDescription`
+- `twitterTweetCount`, `twitterListedCount`, `twitterLikeCount`, `twitterMediaCount`
+- `lifetimeFeesLamports`, `claimsTotalLamports`, `claimsCreatorLamports`
+- `hasToken` (boolean), `hasLinkedCreator`
+- `updatesCount`, `lastUpdateAt`
+- `creatorProjectsCount`, `creatorTokenProjectsCount`
+- `sourceStatus`, `creatorsDataStatus`
+
+**Ce qui est incorrect :**
+
+- `ProjectDetail` dans `lib/project-dto.ts` est le type TypeScript retourné mais il ne correspond pas au select Prisma : des champs comme `twitterFollowersCount` sont dans le select mais absents du type DTO, et inversement. Le type est sous-spécifié.
+- Aucune gestion du cas où `slug` contient des caractères dangereux — non bloquant car Prisma paramètre les requêtes, mais non validé en amont.
