@@ -532,3 +532,152 @@ Les updates sont stockées dans `ImportedProjectUpdate` et **projetées** dans `
 | API 8 — Fee share wallet | Résolution handle social → wallet Bags. Permettrait de lier un creator Twitter à son wallet sans passer par l'API 6. |
 | API 9 — Token launch feed | Feed général Bags. Non pertinent pour le scope hackathon. |
 | API 10 — Bags pool by mint | Clés de pool DBC/DAMM. Non pertinent pour le scope hackathon. |
+
+---
+
+## 7. Ce qui manque comme crons / jobs
+
+### Job manquant A — Détection incrémentale des nouveaux projets
+
+**Ce qu'il fait :** Importe uniquement les projets ajoutés depuis la dernière exécution, sans recharger l'intégralité du catalogue. Compare les UUIDs retournés par la liste Bags avec ceux déjà présents dans `ImportedProject` et ne fetche le détail que des projets inconnus.
+
+**API :** `GET https://api2.bags.fm/api/v1/hackathon/list?page={N}` (API 1) — liste seulement, détail uniquement sur les UUIDs absents de la DB.
+
+**Fréquence recommandée :** toutes les 15–30 minutes.
+
+**Pourquoi ça manque :** `import-bags` recharge tout le catalogue à chaque run. Un run complet sur un catalogue de plusieurs centaines de projets fait N×2 requêtes HTTP (liste + détail par projet). Non scalable et lent à fréquence élevée.
+
+---
+
+### Job manquant B — Rafraîchissement des votes et du status
+
+**Ce qu'il fait :** Met à jour `upvotes`, `downvotes` et `sourceStatus` sur les projets déjà importés, sans refaire les appels détail. Utilise uniquement la liste paginée (qui contient déjà ces champs) pour mettre à jour les projets existants.
+
+**API :** `GET https://api2.bags.fm/api/v1/hackathon/list?page={N}` (API 1) — les champs `upvotes`, `downvotes`, `status` sont présents dans le payload liste.
+
+**Fréquence recommandée :** toutes les heures.
+
+**Pourquoi ça manque :** Actuellement, les votes sont mis à jour lors du run `import-bags` complet. Sans ce job, les votes restent figés entre deux runs complets.
+
+---
+
+### Job manquant C — Rafraîchissement des métriques token
+
+**Ce qu'il fait :** Repasse sur les tokens déjà enrichis pour mettre à jour les métriques qui évoluent dans le temps (`lifetimeFeesLamports`, `claimsTotalLamports`, `claimsUniqueWallets`). La logique de cursor existante dans `import-bags-token-enrichments` tourne déjà en batch circulaire — ce job n'est en réalité que la configuration d'un run plus fréquent du job existant (une fois les bugs #1 et #4 corrigés).
+
+**APIs :**
+- `GET https://public-api-v2.bags.fm/api/v1/token-launch/lifetime-fees?tokenMint={MINT}` (API 4)
+- `GET https://public-api-v2.bags.fm/api/v1/token-launch/claim-stats?tokenMint={MINT}` (API 5)
+- `GET https://public-api-v2.bags.fm/api/v1/token-launch/creator/v3?tokenMint={MINT}` (API 6)
+
+**Fréquence recommandée :** toutes les heures (le cursor batché couvre le catalogue progressivement).
+
+**Pourquoi ça manque :** Le job existe mais les bugs #1 et #4 le rendent inopérant. Une fois corrigés, le job existant suffit à condition d'être déclenché régulièrement.
+
+---
+
+### Job manquant D — Projection régulière des updates dans Project
+
+**Ce qu'il fait :** Déclenche `sync-projects` après chaque run d'`import-bags-updates` pour que `updatesCount` et `lastUpdateAt` soient à jour en DB et visibles en UI. Aujourd'hui ce couplage est implicite et dépend de la fréquence du scheduler.
+
+**API :** Aucune — lecture DB uniquement (via sync-projects existant).
+
+**Fréquence recommandée :** après chaque run d'`import-bags-updates`, ou toutes les heures en full sync.
+
+**Pourquoi ça manque :** Sans run de `sync-projects` après `import-bags-updates`, les nouvelles updates sont dans `ImportedProjectUpdate` mais `Project.updatesCount` et `Project.lastUpdateAt` ne sont pas mis à jour. L'UI ne voit pas l'activité récente.
+
+---
+
+### Job manquant E — Résolution creator via API 8 (fee share wallet)
+
+**Ce qu'il fait :** Pour chaque projet ayant un `twitterUsername` mais sans wallet creator connu, appelle l'API 8 pour résoudre le handle Twitter en wallet Bags. Enrichit `Creator` avec le wallet associé, indépendamment de l'API 6.
+
+**API :** `GET https://public-api-v2.bags.fm/api/v1/token-launch/fee-share/wallet/v2?provider=twitter&username={HANDLE}` (API 8)
+
+**Fréquence recommandée :** une fois par nouveau creator détecté (événementiel) ou quotidien en batch.
+
+**Pourquoi ça manque :** L'API 8 est non utilisée. Elle permettrait de lier un creator à son wallet même si l'API 6 ne retourne pas de données — source complémentaire pour le signal `hasLinkedCreator`.
+
+---
+
+## 8. Plan de correction recommandé
+
+### P0 — Bloquants (rien ne fonctionne correctement sans ça)
+
+**P0-1 — Corriger l'endpoint creators**
+- **Fichier :** `lib/import-bags-token-enrichments.ts` ligne 16
+- **Action :** Remplacer `/token-launch/creators` par `/token-launch/creator/v3`
+- **Pourquoi :** Tous les signaux creator (`hasCreator`, `creatorCount`, `creatorWallets`, `hasLaunchCreator`) sont null depuis le début. C'est le bug le plus impactant sur la qualité des données.
+
+**P0-2 — Corriger normalizeProject : ne pas rejeter description absente**
+- **Fichier :** `lib/import-bags.js` ligne 163
+- **Action :** Supprimer `description` de la liste des champs obligatoires dans `normalizeProject`. La rendre nullable à l'import.
+- **Pourquoi :** Des projets valides sont rejetés. La DB est incomplète et sous-représente le catalogue réel.
+
+**P0-3 — Corriger normalizeProject : ne pas rejeter twitterUrl absente**
+- **Fichier :** `lib/import-bags.js` ligne 164
+- **Action :** Supprimer `twitterUrl` de la liste des champs obligatoires. La rendre nullable.
+- **Pourquoi :** Même cause que P0-2. Amplifie le taux de rejet au-delà des ~20% documentés.
+
+**P0-4 — Corriger l'agrégation des claim stats**
+- **Fichier :** `lib/import-bags-token-enrichments.ts` ligne 313
+- **Action :** Remplacer `event?.amount` par `event?.totalClaimed` dans `normalizeClaimStats`.
+- **Pourquoi :** `claimsTotalLamports` et `claimsCreatorLamports` sont `"0"` sur tous les tokens. Le signal économique principal est inutilisable.
+
+---
+
+### P1 — Importants (données incomplètes ou UI dégradée)
+
+**P1-1 — Remplacer curl par fetch dans import-bags-updates**
+- **Fichier :** `lib/import-bags-updates.js` lignes 198–221 (fonction `fetchUpdatesPage`)
+- **Action :** Réécrire `fetchUpdatesPage` avec `fetch` natif + `AbortController` timeout, sur le même modèle que `fetchBagsEndpoint` dans `import-bags-token-enrichments.ts`.
+- **Pourquoi :** Dépendance fragile au binaire système. Pas de gestion des codes HTTP non-2xx. Risque de buffer overflow sur payloads larges.
+
+**P1-2 — Ajouter la pagination à GET /api/projects**
+- **Fichier :** `app/api/projects/route.ts`
+- **Action :** Ajouter un paramètre `cursor` ou `offset` pour paginer au-delà des 120 premiers résultats.
+- **Pourquoi :** Le catalogue peut contenir plusieurs centaines de projets. L'UI ne peut afficher que les 120 premiers. Les projets plus anciens sont invisibles.
+
+**P1-3 — Compléter le select et le DTO de GET /api/projects/[slug]**
+- **Fichiers :** `app/api/projects/[slug]/route.ts` et `lib/project-dto.ts`
+- **Action :** Ajouter au select : `upvotes`, `downvotes`, `twitterName`, `twitterProfileImage`, `twitterDescription`, `lifetimeFeesLamports`, `claimsTotalLamports`, `hasToken`, `hasLinkedCreator`, `updatesCount`, `lastUpdateAt`, `creatorsDataStatus`. Mettre à jour `ProjectDetail` en conséquence.
+- **Pourquoi :** La page détail d'un projet ne retourne pas les signaux produit calculés par le pipeline. L'UI ne peut pas afficher l'activité, les fees, ni le status creator.
+
+**P1-4 — Documenter SYNC_PROJECTS_BATCH_SIZE dans .env.example**
+- **Fichier :** `.env.example`
+- **Action :** Ajouter `SYNC_PROJECTS_BATCH_SIZE="0"` avec commentaire.
+- **Pourquoi :** Variable utilisée dans `lib/sync-projects.ts` mais absente du fichier d'exemple. Un déployeur ne sait pas qu'elle existe.
+
+**P1-5 — Corriger le filtre hasToken dans /api/projects**
+- **Fichier :** `app/api/projects/route.ts` ligne 32
+- **Action :** Remplacer `{ tokenAddress: { not: null } }` par `{ hasToken: true }` (et `{ hasToken: false }` pour le cas inverse).
+- **Pourquoi :** Le champ `hasToken` a été créé précisément pour cet usage. Utiliser `tokenAddress` crée une divergence potentielle si les deux champs ne sont pas synchronisés.
+
+---
+
+### P2 — Améliorations (signaux produit et opérabilité)
+
+**P2-1 — Implémenter la détection incrémentale des nouveaux projets**
+- **Fichier :** nouveau `lib/import-bags-incremental.js` + nouvelle route `/api/import-bags-incremental`
+- **Action :** Charger la liste Bags, comparer les UUIDs avec `ImportedProject`, fetcher le détail uniquement des nouveaux. Voir job manquant A.
+- **Pourquoi :** Permet un import fréquent (15 min) sans surcharger l'API Bags ni la DB.
+
+**P2-2 — Supprimer le double update Project dans sync-projects**
+- **Fichier :** `lib/sync-projects.ts` lignes 676 et 838
+- **Action :** Fusionner les deux `prisma.project.update` en un seul appel après calcul des signaux relationnels.
+- **Pourquoi :** Réduit de moitié les writes DB sur le full sync. Sur un catalogue de 500 projets, c'est 500 round-trips supprimés.
+
+**P2-3 — Ajouter un tri configurable à GET /api/projects**
+- **Fichier :** `app/api/projects/route.ts`
+- **Action :** Ajouter un paramètre `sort` (ex. `createdAt`, `upvotes`, `lifetimeFeesLamports`, `updatesCount`).
+- **Pourquoi :** L'UI ne peut pas trier par traction économique ni par activité récente. Les signaux calculés par le pipeline sont inutilisables faute d'exposition.
+
+**P2-4 — Populer lastSyncedAt dans import-bags**
+- **Fichier :** `lib/import-bags.js` — blocs `create` et `update` de `importBagsProjects`
+- **Action :** Ajouter `lastSyncedAt: new Date()` dans les données d'écriture.
+- **Pourquoi :** Permet de détecter les projets non re-synchés depuis longtemps et d'implémenter des stratégies de refresh ciblées.
+
+**P2-5 — Implémenter le job de résolution creator via API 8**
+- **Fichier :** nouveau `lib/import-bags-creator-wallets.js` + nouvelle route
+- **Action :** Pour chaque `Creator` avec `twitterUsername` connu et sans wallet, appeler l'API 8. Enrichir `Creator` avec le wallet résolu. Voir job manquant E.
+- **Pourquoi :** Permet de compléter le signal creator indépendamment de l'API 6, dont les données sont partielles même quand l'endpoint fonctionne.
