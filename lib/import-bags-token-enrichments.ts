@@ -12,7 +12,7 @@ const REQUEST_DELAY_MS = 200;
 const ENDPOINTS = {
   lifetimeFees: '/token-launch/lifetime-fees',
   claimStats: '/token-launch/claim-stats',
-  launchCreators: '/token-launch/creators',
+  launchCreators: '/token-launch/creator/v3',
 } as const;
 
 type TokenProjectRow = {
@@ -22,7 +22,7 @@ type TokenProjectRow = {
 
 type ClaimEvent = {
   walletAddress?: unknown;
-  amount?: unknown;
+  totalClaimed?: unknown;
   isCreator?: unknown;
   creator?: unknown;
   wallet?: unknown;
@@ -310,11 +310,11 @@ function normalizeClaimStats(responsePayload: unknown) {
       uniqueWallets.add(wallet.toLowerCase());
     }
 
-    total = addLamports(total, event?.amount);
+    total = addLamports(total, event?.totalClaimed);
 
     const creatorSignal = event?.isCreator === true || event?.creator === true;
     if (creatorSignal) {
-      creator = addLamports(creator, event?.amount);
+      creator = addLamports(creator, event?.totalClaimed);
     }
   }
 
